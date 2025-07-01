@@ -3,22 +3,38 @@
 window.uploadFile = async function () {
     const input = document.getElementById('input');
     const file = input.files[0];
-    if (!file) return alert('Please select a file.');
+    if (!file) {
+        showMessage('⚠️ Por favor selecciona un archivo.', 'warning');
+        return;
+    }
+
+    // Verificar si está logueado
+    try {
+        const loginStatus = await fetch('/api/auth/status');
+        const status = await loginStatus.json();
+        if (!status.isLoggedIn) {
+            showMessage('⚠️ Debes iniciar sesión primero.', 'warning');
+            return;
+        }
+    } catch (err) {
+        showMessage('❌ No se pudo verificar el estado de login.', 'error');
+        console.error('Error al comprobar login:', err);
+        return;
+    }
 
     const upload = document.querySelector('button[onclick="uploadFile()"]');
     upload.disabled = true;
-    showNotification(`Uploading model <em>${file.name}</em>. Do not reload the page.`);
+    showNotification(`🔄 Subiendo modelo <em>${file.name}</em>. No recargues la página.`);
 
     try {
         const objectKey = file.name;
 
         const data = new FormData();
-        const renamedFile = new File([file], objectKey); // important: file with path
+        const renamedFile = new File([file], objectKey);
         data.append('model-file', renamedFile);
 
-        // Opcionalmente manejar ZIPs (aunque en tu caso no los usas)
         if (file.name.endsWith('.zip')) {
-            const entrypoint = window.prompt('Please enter the filename of the main design inside the archive.');
+            const entrypoint = window.prompt('Por favor indica el archivo principal dentro del ZIP.');
             data.append('model-zip-entrypoint', entrypoint);
         }
 
@@ -35,7 +51,7 @@ window.uploadFile = async function () {
         document.dispatchEvent(event);
 
     } catch (err) {
-        alert(`Could not upload model. See console.`);
+        showMessage('❌ No se pudo subir el modelo. Consulta la consola.', 'error');
         console.error(err);
     } finally {
         clearNotification();
@@ -44,17 +60,32 @@ window.uploadFile = async function () {
     }
 };
 
-function showNotification(message) {
+
+function showMessage(message, type = 'info', duration = 5000) {
     const overlay = document.getElementById('overlay');
-    if (!overlay) {
-        const el = document.createElement('div');
-        el.id = 'overlay';
-        el.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#00000080;z-index:1000;display:flex;align-items:center;justify-content:center;color:white';
-        el.innerHTML = `<div class="notification">${message}</div>`;
-        document.body.appendChild(el);
-    } else {
-        overlay.innerHTML = `<div class="notification">${message}</div>`;
-        overlay.style.display = 'flex';
+    const typeClass = {
+        'success': 'alert-success',
+        'error': 'alert-danger',
+        'warning': 'alert-warning',
+        'info': 'alert-info'
+    }[type] || 'alert-info';
+
+    overlay.innerHTML = `
+        <div class="notification">
+            <div class="alert ${typeClass}" role="alert">
+                <button id="closeOverlay" type="button" class="btn-close" aria-label="Cerrar" 
+                        style="position: absolute; top: 10px; right: 15px; border: none; background: none; font-size: 1.5em; cursor: pointer;">×</button>
+                <div id="notificationContent" style="padding-right: 30px;">${message}</div>
+            </div>
+        </div>
+    `;
+    overlay.style.display = 'flex';
+    
+    document.getElementById('closeOverlay').addEventListener('click', clearNotification);
+    
+    // Auto-cerrar después del tiempo especificado (excepto para errores)
+    if (duration > 0 && type !== 'error') {
+        setTimeout(clearNotification, duration);
     }
 }
 
