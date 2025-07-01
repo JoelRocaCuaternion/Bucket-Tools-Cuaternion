@@ -96,60 +96,93 @@ router.post('/api/models', requireAuth, formidable({ maxFileSize: Infinity }), a
     }
 });
 
-// DELETE: Borra un modelo - VERSIÓN CORREGIDA
 router.delete('/api/models/:urn', requireAuth, async function (req, res, next) {
     try {
         const { clientId, clientSecret } = req.session.apsCredentials;
         const urn = req.params.urn;
-        
+       
+        console.log('🗑️ [DELETE] ==================== START ====================');
         console.log('🗑️ [DELETE] Received URN:', urn);
-        
+        console.log('🗑️ [DELETE] URN length:', urn.length);
+        console.log('🗑️ [DELETE] URN first 50 chars:', urn.substring(0, 50));
+       
         // Decodifica el URN para obtener el objectId completo
         let decoded;
         try {
-            // El URN viene URL-encoded, primero decodificamos
-            const decodedUrn = decodeURIComponent(urn);
-            console.log('🗑️ [DELETE] URL Decoded URN:', decodedUrn);
-            
-            // Ahora decodificamos de base64
-            decoded = Buffer.from(decodedUrn, 'base64').toString('utf8');
+            decoded = Buffer.from(urn, 'base64').toString('utf8');
             console.log('🗑️ [DELETE] Base64 decoded:', decoded);
         } catch (decodeError) {
             console.error('🗑️ [DELETE] Error decoding URN:', decodeError);
             return res.status(400).json({ error: 'Invalid URN format - decode error' });
         }
-        
+       
         // El formato esperado es: urn:adsk.objects:os.object:BUCKET_KEY/OBJECT_KEY
-        // Extraer bucketKey y objectKey del decoded URN
         const match = decoded.match(/^urn:adsk\.objects:os\.object:([^\/]+)\/(.+)$/);
         if (!match) {
             console.error('🗑️ [DELETE] URN format not recognized:', decoded);
             return res.status(400).json({ error: 'Invalid URN format - pattern mismatch' });
         }
-        
+       
         const [, bucketKey, objectKey] = match;
-        console.log('🗑️ [DELETE] Extracted - Bucket:', bucketKey, 'Object:', objectKey);
-        
-        // IMPORTANTE: Verificar que el bucket corresponde al usuario actual
+        const decodedObjectKey = decodeURIComponent(objectKey);
+        console.log('🗑️ [DELETE] Extracted bucketKey:', bucketKey);
+        console.log('🗑️ [DELETE] Extracted objectKey:', objectKey);
+        console.log('🗑️ [DELETE] Decoded objectKey:', decodedObjectKey);
+       
+        // DEBUGGING: Verificar buckets disponibles
+        console.log('🗑️ [DELETE] Client ID:', clientId);
         const expectedBucketKey = generateBucket(clientId);
+        console.log('🗑️ [DELETE] Expected bucket:', expectedBucketKey);
+        console.log('🗑️ [DELETE] Actual bucket:', bucketKey);
+        console.log('🗑️ [DELETE] Bucket match:', bucketKey === expectedBucketKey);
+       
+        // Verificar que el bucket corresponde al usuario actual
         if (bucketKey !== expectedBucketKey) {
-            console.error('🗑️ [DELETE] Bucket mismatch. Expected:', expectedBucketKey, 'Got:', bucketKey);
+            console.error('🗑️ [DELETE] Bucket mismatch!');
             return res.status(403).json({ error: 'No tienes permisos para eliminar este archivo' });
         }
-        
-        // Llamar a la función de eliminación
-        await deleteObject(bucketKey, objectKey, clientId, clientSecret);
-        
+
+        // DEBUGGING: Listar objetos en el bucket ANTES de eliminar
+        try {
+            console.log('🗑️ [DELETE] Listing objects in bucket before deletion...');
+            const objects = await listObjects(clientId, clientSecret); // Usar listObjects de aps.js
+            console.log('🗑️ [DELETE] Objects in bucket:', objects.length);
+            objects.forEach((obj, index) => {
+                console.log(`🗑️ [DELETE] Object ${index}:`, obj.objectKey);
+                console.log(`🗑️ [DELETE] Match with target (encoded):`, obj.objectKey === objectKey);
+                console.log(`🗑️ [DELETE] Match with target (decoded):`, obj.objectKey === decodedObjectKey);
+            });
+        } catch (listError) {
+            console.error('🗑️ [DELETE] Error listing objects:', listError.message);
+        }
+       
+        // Llamar a la función de eliminación UNA SOLA VEZ
+        console.log('🗑️ [DELETE] Calling deleteObject...');
+        // Usar decodedObjectKey ya que es la versión correcta
+        await deleteObject(bucketKey, decodedObjectKey, clientId, clientSecret);
+       
         console.log('🗑️ [DELETE] Successfully deleted object');
-        res.json({ 
+        console.log('🗑️ [DELETE] ==================== END ====================');
+        
+        res.json({
+            success: true,
             message: 'Archivo eliminado correctamente',
             bucket: bucketKey,
-            object: objectKey
+            object: decodedObjectKey
         });
-        
+       
     } catch (err) {
+        console.error('🗑️ [DELETE] ==================== ERROR ====================');
         console.error('🗑️ [DELETE] Error:', err);
+        console.error('🗑️ [DELETE] Error message:', err.message);
+        console.error('🗑️ [DELETE] Error stack:', err.stack);
         
+        if (err.axiosError) {
+            console.error('🗑️ [DELETE] Axios error status:', err.axiosError.response?.status);
+            console.error('🗑️ [DELETE] Axios error data:', err.axiosError.response?.data);
+        }
+        console.error('🗑️ [DELETE] ==================== ERROR END ====================');
+       
         // Manejar errores específicos de la API de Autodesk
         if (err.axiosError?.response?.status === 404) {
             const errorData = err.axiosError.response.data;
@@ -159,9 +192,9 @@ router.delete('/api/models/:urn', requireAuth, async function (req, res, next) {
                 return res.status(404).json({ error: 'Archivo no encontrado' });
             }
         }
-        
-        // Error genérico
-        res.status(500).json({ 
+       
+        res.status(500).json({
+            success: false,
             error: err.message || 'Error interno del servidor',
             details: err.axiosError?.response?.data || null
         });

@@ -377,37 +377,37 @@ function closeContextMenu() {
     }
 }
 
-// Eliminar modelo - VERSIÓN CORREGIDA
 async function deleteModel(urn) {
     console.log('🗑️ deleteModel called with URN:', urn);
-    
+   
     // Usar sistema de notificaciones en lugar de confirm
     const shouldDelete = await showConfirmDialog('¿Eliminar este modelo?', 'Esta acción no se puede deshacer.');
-    
+   
     if (!shouldDelete) {
         console.log('🗑️ Delete cancelled by user');
         closeContextMenu();
         return;
     }
-    
+   
     console.log('🗑️ User confirmed deletion, proceeding...');
     closeContextMenu();
-    
+   
     // Mostrar mensaje de carga
     showMessage('⏳ Eliminando archivo...', 'info');
-    
+   
     try {
-        console.log('🗑️ Making DELETE request to:', `/api/models/${encodeURIComponent(urn)}`);
-        
-        const res = await fetch(`/api/models/${encodeURIComponent(urn)}`, {
+        // Hacer la petición DELETE
+        console.log('🗑️ Making DELETE request to:', `/api/models/${urn}`);
+       
+        const res = await fetch(`/api/models/${urn}`, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json'
             }
         });
-        
+       
         console.log('🗑️ DELETE response status:', res.status);
-        
+       
         if (!res.ok) {
             const errorResponse = await res.json().catch(() => null);
             const errorMessage = errorResponse?.error || `Error HTTP ${res.status}`;
@@ -415,19 +415,42 @@ async function deleteModel(urn) {
             showMessage(`❌ Error eliminando archivo: ${errorMessage}`, 'error');
             return;
         }
-        
+       
         const response = await res.json();
         console.log('🗑️ DELETE successful:', response);
-        
+       
+        // Verificar que la respuesta sea exitosa
+        if (response.success === false) {
+            showMessage(`❌ Error eliminando archivo: ${response.error}`, 'error');
+            return;
+        }
+       
         showMessage('✅ Archivo eliminado correctamente', 'success');
+       
+        // Actualizar la UI inmediatamente
+        console.log('🗑️ Updating UI after successful deletion...');
         
-        // Refrescar árbol después de un breve delay
-        setTimeout(() => {
-            setupModelTree(viewerInstance);
-        }, 1000);
-        
-        console.log('🗑️ Tree refresh scheduled');
-        
+        // Opción 1: Refrescar el árbol inmediatamente
+        try {
+            await setupModelTree(viewerInstance);
+            console.log('🗑️ Tree refreshed successfully');
+        } catch (refreshError) {
+            console.error('🗑️ Error refreshing tree:', refreshError);
+            // Si falla el refresh, intentar de nuevo después de un delay
+            setTimeout(async () => {
+                try {
+                    await setupModelTree(viewerInstance);
+                    console.log('🗑️ Tree refreshed on retry');
+                } catch (retryError) {
+                    console.error('🗑️ Error refreshing tree on retry:', retryError);
+                    showMessage('⚠️ Archivo eliminado, pero la lista no se actualizó. Recarga la página.', 'warning');
+                }
+            }, 1500);
+        }
+       
+        // Opción 2: También puedes eliminar el elemento directamente del DOM si tienes una referencia
+        // removeModelFromUI(urn);
+       
     } catch (err) {
         console.error('🗑️ Error in deleteModel:', err);
         showMessage('❌ Error de conexión eliminando archivo. Revisa la consola.', 'error');
