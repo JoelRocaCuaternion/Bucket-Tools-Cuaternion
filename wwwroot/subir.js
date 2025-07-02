@@ -24,7 +24,7 @@ window.uploadFile = async function () {
 
     const upload = document.querySelector('button[onclick="uploadFile()"]');
     upload.disabled = true;
-    showNotification(`🔄 Subiendo modelo <em>${file.name}</em>. No recargues la página.`);
+    showMessage(`🔄 Subiendo modelo <em>${file.name}</em>. No recargues la página.`);
 
     try {
         const objectKey = file.name;

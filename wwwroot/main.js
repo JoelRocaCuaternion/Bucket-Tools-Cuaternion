@@ -216,7 +216,7 @@ function createFolderElement(container, folder, selectedUrn) {
     container.appendChild(folderContainer);
 }
 
-// Crear elemento de archivo
+// Crear elemento de archivo - CON DEBUGGING MEJORADO
 function createFileElement(file, selectedUrn) {
     
     const fileElement = document.createElement('div');
@@ -327,6 +327,7 @@ async function onModelSelected(viewer, urn) {
 
 // Mostrar menú contextual - CON DEBUGGING MEJORADO
 function showContextMenu(x, y, urn) {
+    
     closeContextMenu();
     
     const menu = document.createElement('div');
@@ -367,6 +368,7 @@ function closeContextMenu() {
 }
 
 async function deleteModel(urn) {
+   
     // Usar sistema de notificaciones en lugar de confirm
     const shouldDelete = await showConfirmDialog('¿Eliminar este modelo?', 'Esta acción no se puede deshacer.');
    
@@ -374,13 +376,14 @@ async function deleteModel(urn) {
         closeContextMenu();
         return;
     }
+   
     closeContextMenu();
    
     // Mostrar mensaje de carga
     showMessage('⏳ Eliminando archivo...', 'info');
    
     try {
-        // Hacer la petición DELETE 
+        // Hacer la petición DELETE
         const res = await fetch(`/api/models/${urn}`, {
             method: 'DELETE',
             headers: {
@@ -391,6 +394,7 @@ async function deleteModel(urn) {
         if (!res.ok) {
             const errorResponse = await res.json().catch(() => null);
             const errorMessage = errorResponse?.error || `Error HTTP ${res.status}`;
+            console.error('🗑️ DELETE failed:', errorMessage);
             showMessage(`❌ Error eliminando archivo: ${errorMessage}`, 'error');
             return;
         }
@@ -402,6 +406,7 @@ async function deleteModel(urn) {
             showMessage(`❌ Error eliminando archivo: ${response.error}`, 'error');
             return;
         }
+       
         showMessage('✅ Archivo eliminado correctamente', 'success');
        
         // Actualizar la UI inmediatamente
@@ -409,6 +414,7 @@ async function deleteModel(urn) {
         // Opción 1: Refrescar el árbol inmediatamente
         try {
             await setupModelTree(viewerInstance);
+
         } catch (refreshError) {
             console.error('🗑️ Error refreshing tree:', refreshError);
             // Si falla el refresh, intentar de nuevo después de un delay
@@ -426,6 +432,7 @@ async function deleteModel(urn) {
         // removeModelFromUI(urn);
        
     } catch (err) {
+        console.error('🗑️ Error in deleteModel:', err);
         showMessage('❌ Error de conexión eliminando archivo. Revisa la consola.', 'error');
     }
 }
@@ -489,11 +496,6 @@ function showConfirmDialog(title, message) {
     });
 }
 
-// Función legacy para compatibilidad
-function showNotification(message) {
-    showMessage(message, 'info');
-}
-
 // Limpiar notificación
 function clearNotification() {
     const overlay = document.getElementById('overlay');
@@ -516,7 +518,6 @@ document.addEventListener('model-uploaded', (e) => {
     setupModelTree(viewerInstance, urn);
 });
 
-
 // Extraer JSON - VERSIÓN OPTIMIZADA PARA PLANTAS INDUSTRIALES
 
 async function exportarPropiedades() {
@@ -538,7 +539,7 @@ async function exportarPropiedades() {
         return;
     }
 
-    showMessage('⏳ Extrayendo objetos del modelo...', 'info');
+    showMessage('⏳ Extrayendo objetos del modelo (modo rápido)...', 'info');
 
     try {
         // Obtener el árbol de instancias del modelo
@@ -572,8 +573,6 @@ async function exportarPropiedades() {
 
         const rootId = instanceTree.getRootId();
         const allDbIds = collectAllDbIds(rootId);
-        
-        showMessage(`🚀 Encontrados ${allDbIds.length} nodos. Procesando....`, 'info');
 
         // Configuración para procesamiento masivo
         const BATCH_SIZE = 100; // Procesar 100 objetos simultáneamente
@@ -597,7 +596,6 @@ async function exportarPropiedades() {
                         // Progreso cada 200 objetos
                         if (processedCount % 200 === 0) {
                             const progress = Math.round((processedCount / allDbIds.length) * 100);
-                            showMessage(`⚡ Progreso: ${progress}% (${processedCount}/${allDbIds.length})`, 'info');
                         }
 
                         // Solo objetos con propiedades reales
@@ -643,8 +641,7 @@ async function exportarPropiedades() {
             return Promise.all(promises);
         };
 
-        // Procesar TODO en lotes grandes y paralelos
-        
+        // Procesar TODO en lotes grandes y paralelos       
         const startTime = Date.now();
         const allPromises = [];
 
@@ -677,6 +674,8 @@ async function exportarPropiedades() {
         }
 
         // Crear y descargar el archivo JSON de forma eficiente
+
+        
         const jsonString = JSON.stringify(modelData, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -709,31 +708,48 @@ async function exportarPropiedades() {
 
 window.exportarPropiedades = exportarPropiedades;
 
-
-// EXPORTACIÓN EXCEL INTELIGENTE - MÁXIMO RENDIMIENTO PARA CUALQUIER TAMAÑO
+// Excel - VERSIÓN OPTIMIZADA PARA PLANTAS INDUSTRIALES
 
 async function exportarPropiedadesExcel() {
     
-    // Validaciones iniciales
-    if (!viewerInstance?.model || !selectedUrn) {
-        showMessage('❌ Viewer, modelo o URN no disponible', 'error');
+    // Verificar que hay un viewer activo y un modelo cargado
+    if (!viewerInstance) {
+        showMessage('❌ No hay un visor activo', 'error');
         return;
     }
 
     const model = viewerInstance.model;
-    const instanceTree = model.getInstanceTree();
-    
-    if (!instanceTree) {
-        showMessage('❌ No se pudo acceder al árbol de instancias', 'error');
+    if (!model) {
+        showMessage('❌ No hay un modelo cargado', 'error');
         return;
     }
 
-    showMessage('🔍 Analizando modelo para optimizar exportación...', 'info');
+    if (!selectedUrn) {
+        showMessage('❌ No hay un modelo seleccionado', 'error');
+        return;
+    }
+
+    showMessage('⏳ Extrayendo objetos del modelo para Excel...', 'info');
 
     try {
-        const startTime = Date.now();
-        
-        // ===== FASE 1: ANÁLISIS INTELIGENTE DEL MODELO =====
+        // Obtener el árbol de instancias del modelo
+        const instanceTree = model.getInstanceTree();
+        if (!instanceTree) {
+            showMessage('❌ No se pudo acceder al árbol de instancias del modelo', 'error');
+            return;
+        }
+
+        // Metadata del modelo
+        const modelMetadata = {
+            urn: selectedUrn,
+            exportDate: new Date().toISOString(),
+            modelName: model.getData().name || 'Modelo sin nombre',
+            totalObjects: 0,
+            processedNodes: 0,
+            startTime: Date.now()
+        };
+
+        // Recopilar TODOS los dbIds de una vez
         const collectAllDbIds = (nodeId, dbIds = []) => {
             dbIds.push(nodeId);
             instanceTree.enumNodeChildren(nodeId, (childNodeId) => {
@@ -744,287 +760,221 @@ async function exportarPropiedadesExcel() {
 
         const rootId = instanceTree.getRootId();
         const allDbIds = collectAllDbIds(rootId);
-        const totalNodes = allDbIds.length;
 
-        // Determinar estrategia automáticamente
-        let strategy;
-        if (totalNodes < 1000) {
-            strategy = 'PEQUEÑO';
-        } else if (totalNodes < 5000) {
-            strategy = 'MEDIANO';
-        } else if (totalNodes < 20000) {
-            strategy = 'GRANDE';
-        } else {
-            strategy = 'ULTRA_GRANDE';
-        }
+        // Arrays para almacenar los datos de Excel
+        const excelData = [];
+        const allProperties = new Set(); // Para recopilar todas las propiedades únicas
 
-        showMessage(`🎯 Modelo ${strategy.toLowerCase()}: ${totalNodes.toLocaleString()} objetos`, 'info');
-
-        // Configuración dinámica según tamaño
-        const getConfig = (strategy) => {
-            const configs = {
-                PEQUEÑO: {
-                    BATCH_SIZE: 200,
-                    MAX_COLUMNS: 100,
-                    MAX_ROWS_PER_SHEET: 100000,
-                    SAMPLE_PERCENTAGE: 0.5,
-                    PARALLEL_BATCHES: 4,
-                    MEMORY_CLEANUP_INTERVAL: 2000
-                },
-                MEDIANO: {
-                    BATCH_SIZE: 100,
-                    MAX_COLUMNS: 75,
-                    MAX_ROWS_PER_SHEET: 65000,
-                    SAMPLE_PERCENTAGE: 0.3,
-                    PARALLEL_BATCHES: 3,
-                    MEMORY_CLEANUP_INTERVAL: 1000
-                },
-                GRANDE: {
-                    BATCH_SIZE: 50,
-                    MAX_COLUMNS: 50,
-                    MAX_ROWS_PER_SHEET: 40000,
-                    SAMPLE_PERCENTAGE: 0.2,
-                    PARALLEL_BATCHES: 2,
-                    MEMORY_CLEANUP_INTERVAL: 500
-                },
-                ULTRA_GRANDE: {
-                    BATCH_SIZE: 25,
-                    MAX_COLUMNS: 30,
-                    MAX_ROWS_PER_SHEET: 25000,
-                    SAMPLE_PERCENTAGE: 0.1,
-                    PARALLEL_BATCHES: 1,
-                    MEMORY_CLEANUP_INTERVAL: 250
-                }
-            };
-            return configs[strategy];
-        };
-
-        const CONFIG = getConfig(strategy);
-
-        // ===== FASE 2: ANÁLISIS INTELIGENTE DE PROPIEDADES =====
-        const sampleSize = Math.min(
-            Math.max(100, Math.floor(totalNodes * CONFIG.SAMPLE_PERCENTAGE)), 
-            1000
-        );
-        const sampleDbIds = [];
-        
-        // Muestreo inteligente: tomar objetos distribuidos uniformemente
-        const step = Math.floor(totalNodes / sampleSize);
-        for (let i = 0; i < totalNodes && sampleDbIds.length < sampleSize; i += step) {
-            sampleDbIds.push(allDbIds[i]);
-        }
-        
-        showMessage(`🔬 Analizando propiedades (${sampleDbIds.length} objetos)...`, 'info');
-
-        const propertyFrequency = new Map();
-        const categoryFrequency = new Map();
-        let sampleProcessed = 0;
-
-        // Análisis paralelo de la muestra
-        const analyzeSample = async () => {
-            const promises = sampleDbIds.map(dbId => 
-                new Promise(resolve => {
-                    model.getProperties(dbId, (properties) => {
-                        if (properties?.properties) {
-                            properties.properties.forEach(prop => {
-                                const category = prop.displayCategory || 'General';
-                                const propName = prop.displayName;
-                                const fullKey = `${category}::${propName}`;
-                                
-                                propertyFrequency.set(fullKey, (propertyFrequency.get(fullKey) || 0) + 1);
-                                categoryFrequency.set(category, (categoryFrequency.get(category) || 0) + 1);
-                            });
-                        }
-                        
-                        sampleProcessed++;
-                        resolve();
-
-                    }, resolve);
-                })
-            );
-
-            await Promise.all(promises);
-        };
-
-        await analyzeSample();
-
-        // Seleccionar las propiedades más relevantes
-        const selectedProperties = Array.from(propertyFrequency.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, CONFIG.MAX_COLUMNS)
-            .map(([key]) => key);
-
-        const topCategories = Array.from(categoryFrequency.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([cat]) => cat);
-
-        // ===== FASE 3: PROCESAMIENTO ULTRA-OPTIMIZADO =====
-        showMessage(`⚡ Procesando ${totalNodes.toLocaleString()} objetos con estrategia ${strategy}...`, 'info');
-
-        const workbook = XLSX.utils.book_new();
-        let totalObjectsExported = 0;
-        let currentSheetIndex = 1;
-        let currentSheetData = [];
+        // Configuración para procesamiento
+        const BATCH_SIZE = 100;
+        const processedDbIds = new Set();
         let processedCount = 0;
 
-        const processChunkOptimized = async (dbIdChunk) => {
-            const chunkPromises = dbIdChunk.map(dbId => 
-                new Promise(resolve => {
+        // Función para procesar objetos para Excel
+        const processBatchForExcel = (dbIdsBatch) => {
+            const promises = dbIdsBatch.map(dbId => {
+                if (processedDbIds.has(dbId)) {
+                    return Promise.resolve(null);
+                }
+                
+                processedDbIds.add(dbId);
+                
+                return new Promise((resolve) => {
                     model.getProperties(dbId, (properties) => {
                         processedCount++;
                         
-                        if (properties?.properties?.length > 0) {
-                            const objectName = instanceTree.getNodeName(dbId) || `Obj_${dbId}`;
+                        if (processedCount % 200 === 0) {
+                            const progress = Math.round((processedCount / allDbIds.length) * 100);
+                        }
+
+                        if (properties && properties.properties && properties.properties.length > 0) {
+                            const objectName = instanceTree.getNodeName(dbId) || `Objeto_${dbId}`;
                             
+                            // Crear fila para Excel
                             const rowData = {
-                                ID: dbId,
-                                Nombre: objectName.substring(0, 255), // Límite Excel
-                                ID_Externo: (properties.externalId || '').substring(0, 255),
-                                Categoria_Principal: ''
+                                'ID': dbId,
+                                'Nombre': objectName,
+                                'ID Externo': properties.externalId || '',
+                                'Categoría Principal': ''
                             };
 
-                            let primaryCategory = '';
-                            const propMap = new Map();
-
-                            // Mapear propiedades eficientemente
+                            // Procesar propiedades y aplanarlas para Excel
+                            let mainCategory = '';
                             properties.properties.forEach(prop => {
-                                const category = prop.displayCategory || 'General';
-                                const fullKey = `${category}::${prop.displayName}`;
+                                const category = prop.displayCategory || 'Item';
+                                const propName = prop.displayName;
+                                const propValue = prop.displayValue || '';
+                                const propUnits = prop.units ? ` (${prop.units})` : '';
                                 
-                                if (selectedProperties.includes(fullKey)) {
-                                    const columnName = `${category}_${prop.displayName}`.replace(/[^\w]/g, '_');
-                                    propMap.set(columnName, (prop.displayValue || '').toString().substring(0, 255));
-                                }
+                                // Crear columna única para cada propiedad
+                                const columnName = `${category} - ${propName}${propUnits}`;
+                                rowData[columnName] = propValue;
                                 
-                                if (!primaryCategory && topCategories.includes(category)) {
-                                    primaryCategory = category;
+                                // Guardar todas las propiedades para las columnas
+                                allProperties.add(columnName);
+                                
+                                // Determinar categoría principal
+                                if (!mainCategory && category !== 'Item') {
+                                    mainCategory = category;
                                 }
                             });
 
-                            rowData.Categoria_Principal = primaryCategory || 'General';
+                            rowData['Categoría Principal'] = mainCategory || 'Sin categoría';
                             
-                            // Agregar propiedades al objeto
-                            propMap.forEach((value, key) => {
-                                rowData[key] = value;
-                            });
-
-                            if (propMap.size > 0) {
-                                totalObjectsExported++;
+                            if (Object.keys(rowData).length > 4) { // Más que las columnas básicas
+                                modelMetadata.totalObjects++;
                                 resolve(rowData);
                                 return;
                             }
                         }
                         
                         resolve(null);
-                    }, () => resolve(null));
-                })
-            );
+                    }, () => {
+                        processedCount++;
+                        resolve(null);
+                    });
+                });
+            });
 
-            const results = await Promise.all(chunkPromises);
-            return results.filter(result => result !== null);
+            return Promise.all(promises);
         };
 
-        // Procesamiento por chunks con gestión inteligente de memoria
-        for (let i = 0; i < totalNodes; i += CONFIG.BATCH_SIZE) {
-            const chunk = allDbIds.slice(i, i + CONFIG.BATCH_SIZE);
-            const chunkData = await processChunkOptimized(chunk);
-            
-            currentSheetData.push(...chunkData);
-            
-            // Progreso actualizado más frecuentemente
-            if (processedCount % Math.max(100, Math.floor(totalNodes / 100)) === 0) {
-                const progress = Math.round((processedCount / totalNodes) * 100);
-            
-                showMessage(`⚡ Procesando: ${progress}% (${totalObjectsExported.toLocaleString()} objetos válidos)`, 'info');
-            }
+        // Procesar todos los lotes
+        const startTime = Date.now();
+        const allPromises = [];
 
-            // Gestión inteligente de hojas
-            if (currentSheetData.length >= CONFIG.MAX_ROWS_PER_SHEET) {
-                await createOptimizedSheet(workbook, currentSheetData, `Datos_${currentSheetIndex}`);
-                
-                currentSheetData = []; // Liberación inmediata de memoria
-                currentSheetIndex++;
-                
-                // Forzar garbage collection si está disponible
-                if (typeof window !== 'undefined' && window.gc) {
-                    window.gc();
-                }
-            }
-
-            // Limpieza de memoria periódica
-            if (processedCount % CONFIG.MEMORY_CLEANUP_INTERVAL === 0) {
-                await new Promise(resolve => setTimeout(resolve, 5));
-            }
+        for (let i = 0; i < allDbIds.length; i += BATCH_SIZE) {
+            const batch = allDbIds.slice(i, i + BATCH_SIZE);
+            allPromises.push(processBatchForExcel(batch));
         }
 
-        // Crear hoja final si hay datos restantes
-        if (currentSheetData.length > 0) {
-            await createOptimizedSheet(workbook, currentSheetData, `Datos_${currentSheetIndex}`);
-        }
-
-        // ===== FASE 4: HOJA DE RESUMEN INTELIGENTE =====
-        const processingTime = (Date.now() - startTime) / 1000;
-        const successRate = Math.round((totalObjectsExported / totalNodes) * 100);
+        const results = await Promise.all(allPromises);
         
+        // Recopilar resultados
+        results.forEach(batchResults => {
+            batchResults.forEach(object => {
+                if (object) {
+                    excelData.push(object);
+                }
+            });
+        });
+
+        const processingTime = Date.now() - startTime;
+        modelMetadata.processingTimeMs = processingTime;
+        modelMetadata.processedNodes = processedCount;
+        
+        if (excelData.length === 0) {
+            showMessage('⚠️ No se encontraron objetos con propiedades para Excel', 'warning');
+            return;
+        }
+
+        // Crear el libro de Excel
+        
+        // Crear un nuevo libro de trabajo
+        const workbook = XLSX.utils.book_new();
+
+        // Hoja 1: Resumen/Metadata
         const summaryData = [
-            ['🏭 RESUMEN EXPORTACIÓN INTELIGENTE'],
+            ['📋 RESUMEN DE EXPORTACIÓN'],
             [''],
-            ['📊 ESTADÍSTICAS GENERALES'],
-            ['Modelo:', model.getData()?.name || 'Sin nombre'],
-            ['Estrategia aplicada:', strategy],
-            ['Objetos totales:', totalNodes.toLocaleString()],
-            ['Objetos exportados:', totalObjectsExported.toLocaleString()],
-            ['Tasa de éxito:', `${successRate}%`],
-            ['Tiempo procesamiento:', `${processingTime.toFixed(1)} segundos`],
-            ['Velocidad:', `${Math.round(totalNodes / processingTime).toLocaleString()} obj/seg`],
+            ['Modelo:', modelMetadata.modelName],
+            ['URN:', modelMetadata.urn],
+            ['Fecha de exportación:', new Date(modelMetadata.exportDate).toLocaleString()],
+            ['Total de objetos:', modelMetadata.totalObjects],
+            ['Nodos procesados:', modelMetadata.processedNodes],
+            ['Tiempo de procesamiento:', `${(processingTime/1000).toFixed(2)} segundos`],
+            ['Velocidad:', `${Math.round(allDbIds.length / (processingTime/1000))} objetos/segundo`],
             [''],
-            ['📋 ESTRUCTURA ARCHIVO'],
-            ['Total de hojas:', currentSheetIndex],
-            ['Máx. filas por hoja:', CONFIG.MAX_ROWS_PER_SHEET.toLocaleString()],
-            ['Propiedades incluidas:', selectedProperties.length],
-            ['Categorías principales:', topCategories.length],
-            [''],
-            ['⚙️ CONFIGURACIÓN APLICADA'],
-            ['Tamaño de lote:', CONFIG.BATCH_SIZE],
-            ['Muestra analizada:', `${sampleDbIds.length} objetos (${(CONFIG.SAMPLE_PERCENTAGE * 100)}%)`],
-            ['Columnas máximas:', CONFIG.MAX_COLUMNS]
+            ['🔧 ESTADÍSTICAS'],
+            ['Tasa de éxito:', `${Math.round((modelMetadata.totalObjects / allDbIds.length) * 100)}%`],
+            ['Total de propiedades únicas:', allProperties.size],
+            ['Objetos con propiedades:', excelData.length]
         ];
 
         const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-        summarySheet['!cols'] = [{ width: 30 }, { width: 40 }];
-        XLSX.utils.book_append_sheet(workbook, summarySheet, '📊_Resumen', 0);
+        
+        // Aplicar estilos básicos al resumen
+        summarySheet['!cols'] = [
+            { width: 25 },
+            { width: 50 }
+        ];
 
-        // ===== FASE 5: GENERACIÓN Y DESCARGA OPTIMIZADA =====
-        showMessage('💾 Generando archivo Excel...', 'info');
+        XLSX.utils.book_append_sheet(workbook, summarySheet, '📋 Resumen');
 
-        const wbout = XLSX.write(workbook, { 
-            bookType: 'xlsx', 
-            type: 'array',
-            compression: true,
-            Props: {
-                Title: `Exportación ${strategy}`,
-                Author: 'Sistema Inteligente',
-                CreatedDate: new Date()
-            }
+        // Hoja 2: Datos principales
+        if (excelData.length > 0) {
+            // Ordenar las columnas: primero las básicas, luego las propiedades alfabéticamente
+            const basicColumns = ['ID', 'Nombre', 'ID Externo', 'Categoría Principal'];
+            const propertyColumns = Array.from(allProperties).sort();
+            const orderedColumns = [...basicColumns, ...propertyColumns];
+
+            // Crear datos ordenados
+            const orderedData = excelData.map(row => {
+                const orderedRow = {};
+                orderedColumns.forEach(col => {
+                    orderedRow[col] = row[col] || '';
+                });
+                return orderedRow;
+            });
+
+            const dataSheet = XLSX.utils.json_to_sheet(orderedData, { header: orderedColumns });
+            
+            // Configurar anchos de columna
+            const colWidths = orderedColumns.map(col => {
+                if (col === 'ID') return { width: 8 };
+                if (col === 'Nombre') return { width: 30 };
+                if (col === 'ID Externo') return { width: 20 };
+                if (col === 'Categoría Principal') return { width: 20 };
+                return { width: 25 };
+            });
+            
+            dataSheet['!cols'] = colWidths;
+
+            // Congelar la primera fila (encabezados)
+            dataSheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+            XLSX.utils.book_append_sheet(workbook, dataSheet, '🏭 Objetos del Modelo');
+        }
+
+        // Hoja 3: Resumen por categorías
+        const categoryStats = {};
+        excelData.forEach(obj => {
+            const category = obj['Categoría Principal'] || 'Sin categoría';
+            categoryStats[category] = (categoryStats[category] || 0) + 1;
         });
+
+        const categoryData = [
+            ['📊 OBJETOS POR CATEGORÍA'],
+            [''],
+            ['Categoría', 'Cantidad', 'Porcentaje']
+        ];
+
+        Object.entries(categoryStats)
+            .sort((a, b) => b[1] - a[1])
+            .forEach(([category, count]) => {
+                const percentage = Math.round((count / excelData.length) * 100);
+                categoryData.push([category, count, `${percentage}%`]);
+            });
+
+        const categorySheet = XLSX.utils.aoa_to_sheet(categoryData);
+        categorySheet['!cols'] = [
+            { width: 30 },
+            { width: 15 },
+            { width: 15 }
+        ];
+
+        XLSX.utils.book_append_sheet(workbook, categorySheet, '📊 Por Categorías');
+
+        // Generar el archivo Excel
+        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         
-        const fileSizeMB = Math.round(wbout.length / 1024 / 1024 * 100) / 100;
+        // Crear nombre de archivo
+        const modelName = modelMetadata.modelName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `planta_industrial_${modelName}_${modelMetadata.totalObjects}obj_${timestamp}.xlsx`;
         
-        const blob = new Blob([wbout], { 
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-        });
-        
-        // Nombre de archivo inteligente
-        const modelName = (model.getData()?.name || 'modelo')
-            .replace(/[^a-z0-9]/gi, '_')
-            .toLowerCase()
-            .substring(0, 30);
-        
-        const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '');
-        const filename = `${modelName}_${strategy.toLowerCase()}_${totalObjectsExported}obj_${currentSheetIndex}hojas_${timestamp}.xlsx`;
-        
-        // Descarga
+        // Descargar archivo
         const url = URL.createObjectURL(blob);
         const downloadLink = document.createElement('a');
         downloadLink.href = url;
@@ -1034,76 +984,17 @@ async function exportarPropiedadesExcel() {
         document.body.appendChild(downloadLink);
         downloadLink.click();
         document.body.removeChild(downloadLink);
+        
         URL.revokeObjectURL(url);
         
-        // Mensaje final optimizado
-        const finalMessage = `🎉 EXCEL ${strategy}: ${totalObjectsExported.toLocaleString()} objetos en ${currentSheetIndex} hojas (${processingTime.toFixed(1)}s, ${fileSizeMB}MB)`;
-        showMessage(finalMessage, 'success');
+        const successRate = Math.round((modelMetadata.totalObjects / allDbIds.length) * 100);
+        showMessage(`📊 EXCEL GENERADO: ${modelMetadata.totalObjects} objetos en ${(processingTime/1000).toFixed(1)}s (${successRate}% éxito)`, 'success');
 
     } catch (error) {
-        console.error('❌ Error en exportación inteligente:', error);
-        showMessage(`❌ Error: ${error.message}. Ver consola para detalles.`, 'error');
+        console.error('❌ Error en exportación a Excel:', error);
+        showMessage('❌ Error en la exportación a Excel. Revisa la consola.', 'error');
     }
 }
 
-// Función auxiliar para crear hojas optimizadas
-async function createOptimizedSheet(workbook, data, sheetName) {
-    if (!data || data.length === 0) return;
-    
-    try {
-        // Obtener todas las columnas únicas de los datos
-        const allColumns = new Set();
-        data.forEach(row => {
-            Object.keys(row).forEach(col => allColumns.add(col));
-        });
-        
-        // Ordenar columnas: básicas primero, luego alfabéticamente
-        const basicColumns = ['ID', 'Nombre', 'ID_Externo', 'Categoria_Principal'];
-        const otherColumns = Array.from(allColumns)
-            .filter(col => !basicColumns.includes(col))
-            .sort();
-        
-        const orderedColumns = [...basicColumns, ...otherColumns];
-        
-        // Crear hoja con datos ordenados
-        const worksheet = XLSX.utils.json_to_sheet(data, { 
-            header: orderedColumns,
-            skipHeader: false 
-        });
-        
-        // Configurar anchos de columna inteligentes
-        const colWidths = orderedColumns.map(col => {
-            if (col === 'ID') return { width: 12 };
-            if (col === 'Nombre') return { width: 35 };
-            if (col === 'ID_Externo') return { width: 20 };
-            if (col === 'Categoria_Principal') return { width: 25 };
-            return { width: 22 };
-        });
-        
-        worksheet['!cols'] = colWidths;
-        worksheet['!freeze'] = { xSplit: 0, ySplit: 1 };
-        
-        // Aplicar formato básico al encabezado
-        const range = XLSX.utils.decode_range(worksheet['!ref']);
-        for (let col = range.s.c; col <= range.e.c; col++) {
-            const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
-            if (worksheet[cellAddress]) {
-                worksheet[cellAddress].s = {
-                    font: { bold: true },
-                    fill: { fgColor: { rgb: "CCCCCC" } }
-                };
-            }
-        }
-        
-        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-        
-        // Pequeña pausa para permitir procesamiento
-        await new Promise(resolve => setTimeout(resolve, 1));
-        
-    } catch (error) {
-        console.error(`Error creando hoja ${sheetName}:`, error);
-    }
-}
-
-// Mantener compatibilidad con función anterior
+// Hacer la función disponible globalmente
 window.exportarPropiedadesExcel = exportarPropiedadesExcel;
