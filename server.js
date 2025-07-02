@@ -6,11 +6,11 @@ let app = express();
 
 // Configurar sesiones
 app.use(session({
-    secret: 'VivaEspana!_3', // Cambia esto por una clave más segura
+    secret: 'cuaternion-forge-secret-key', // Cambia esto por una clave más segura
     resave: false,
     saveUninitialized: false,
     cookie: { 
-        secure: true,
+        secure: false, // Cambiar a true si usas HTTPS
         maxAge: 24 * 60 * 60 * 1000 // 24 horas
     }
 }));
