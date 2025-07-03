@@ -7,6 +7,7 @@ let selectedUrn = null;
 let objetoEscalado = false;
 let objetoEscaladoDbId = null;
 let transformacionesOriginales = new Map();
+let objetosEscalados = new Map();
 
 
 // Verificar estado de login al cargar la página
@@ -1044,7 +1045,7 @@ function escalarObjeto() {
     }
 }
 
-// Función para aplicar escala correctamente
+// Función para aplicar escala 
 function aplicarEscala(dbId, factor) {
     const model = viewerInstance.model;
     const instanceTree = model.getInstanceTree();
@@ -1055,11 +1056,19 @@ function aplicarEscala(dbId, factor) {
         fragIds.push(fragId);
     });
 
+    // Calcular bounding box total del dbId (todos los fragmentos juntos).
+    const bboxTotal = new THREE.Box3();
+    fragIds.forEach(fragId => {
+        const fragBbox = new THREE.Box3();
+        fragList.getWorldBounds(fragId, fragBbox);
+        bboxTotal.union(fragBbox);
+    });
+    const center = bboxTotal.getCenter(new THREE.Vector3());
+
     fragIds.forEach((fragId) => {
         const fragProxy = viewerInstance.impl.getFragmentProxy(model, fragId);
-        fragProxy.getAnimTransform(); // importante para obtener datos actuales
+        fragProxy.getAnimTransform();
 
-        // Guardar transformación original solo una vez
         if (!transformacionesOriginales.has(fragId)) {
             transformacionesOriginales.set(fragId, {
                 position: fragProxy.position.clone(),
@@ -1068,8 +1077,13 @@ function aplicarEscala(dbId, factor) {
             });
         }
 
-        // Aplicar nueva escala
+        // Compensar la posición para escalar desde el centro común del objeto
+        const offset = new THREE.Vector3().subVectors(fragProxy.position, center);
+        const nuevaPos = new THREE.Vector3().addVectors(center, offset.multiplyScalar(factor));
+
         fragProxy.scale.multiplyScalar(factor);
+        fragProxy.position.copy(nuevaPos);
+
         fragProxy.updateAnimTransform();
     });
 
