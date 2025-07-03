@@ -4,6 +4,10 @@ import { initViewer, loadModel } from './viewer.js';
 let viewerInstance = null;
 let isLoggedIn = false;
 let selectedUrn = null;
+let objetoEscalado = false;
+let objetoEscaladoDbId = null;
+let transformacionesOriginales = new Map();
+
 
 // Verificar estado de login al cargar la página
 checkLoginStatus();
@@ -998,3 +1002,119 @@ async function exportarPropiedadesExcel() {
 
 // Hacer la función disponible globalmente
 window.exportarPropiedadesExcel = exportarPropiedadesExcel;
+
+// Función principal para escalar/desescalar
+function escalarObjeto() {
+    if (!viewerInstance) {
+        showMessage('❌ No hay un visor activo', 'error');
+        return;
+    }
+
+    const model = viewerInstance.model;
+    if (!model) {
+        showMessage('❌ No hay un modelo cargado', 'error');
+        return;
+    }
+
+    // Obtener la selección actual
+    const selection = viewerInstance.getSelection();
+    
+    if (selection.length === 0) {
+        showMessage('⚠️ Selecciona un objeto primero en el visor', 'warning');
+        return;
+    }
+
+    const dbId = selection[0];
+    
+    if (!objetoEscalado) {
+        // ESCALAR el objeto seleccionado
+        aplicarEscala(dbId, 2.0);
+        objetoEscalado = true;
+        objetoEscaladoDbId = dbId;
+        
+        const objectName = getObjectName(dbId);
+        showMessage(`🔍 Objeto escalado 2x: ${objectName}`, 'success');
+    } else {
+        // DESESCALAR - volver al tamaño original
+        restaurarTamanoOriginal(objetoEscaladoDbId);
+        objetoEscalado = false;
+        objetoEscaladoDbId = null;
+        
+        showMessage('🔄 Objeto restaurado a tamaño original', 'info');
+    }
+}
+
+// Función para aplicar escala correctamente
+function aplicarEscala(dbId, factor) {
+    const model = viewerInstance.model;
+    const instanceTree = model.getInstanceTree();
+    const fragList = model.getFragmentList();
+
+    const fragIds = [];
+    instanceTree.enumNodeFragments(dbId, (fragId) => {
+        fragIds.push(fragId);
+    });
+
+    fragIds.forEach((fragId) => {
+        const fragProxy = viewerInstance.impl.getFragmentProxy(model, fragId);
+        fragProxy.getAnimTransform(); // importante para obtener datos actuales
+
+        // Guardar transformación original solo una vez
+        if (!transformacionesOriginales.has(fragId)) {
+            transformacionesOriginales.set(fragId, {
+                position: fragProxy.position.clone(),
+                rotation: fragProxy.quaternion.clone(),
+                scale: fragProxy.scale.clone()
+            });
+        }
+
+        // Aplicar nueva escala
+        fragProxy.scale.multiplyScalar(factor);
+        fragProxy.updateAnimTransform();
+    });
+
+    viewerInstance.impl.sceneUpdated(true);
+}
+
+// Función para restaurar el tamaño original
+function restaurarTamanoOriginal(dbId) {
+    const model = viewerInstance.model;
+    const instanceTree = model.getInstanceTree();
+
+    const fragIds = [];
+    instanceTree.enumNodeFragments(dbId, (fragId) => {
+        fragIds.push(fragId);
+    });
+
+    fragIds.forEach((fragId) => {
+        const transform = transformacionesOriginales.get(fragId);
+        if (!transform) return;
+
+        const fragProxy = viewerInstance.impl.getFragmentProxy(model, fragId);
+        fragProxy.getAnimTransform();
+
+        fragProxy.position.copy(transform.position);
+        fragProxy.quaternion.copy(transform.rotation);
+        fragProxy.scale.copy(transform.scale);
+
+        fragProxy.updateAnimTransform();
+    });
+
+    viewerInstance.impl.sceneUpdated(true);
+}
+
+// Función para obtener el nombre del objeto
+function getObjectName(dbId) {
+    try {
+        const model = viewerInstance.model;
+        if (model && model.getInstanceTree) {
+            const tree = model.getInstanceTree();
+            return tree.getNodeName(dbId) || `Objeto_${dbId}`;
+        }
+        return `Objeto_${dbId}`;
+    } catch (error) {
+        return `Objeto_${dbId}`;
+    }
+}
+
+window.escalarObjeto = escalarObjeto;

@@ -36,8 +36,17 @@
         </div>
 
         <button id="upload" class="btn btn-primary mb-2" onclick="uploadFile()">Upload</button>
-        <button class="btn btn-warning mb-2" onclick="exportarPropiedades()">Exportar a JSON</button>
-        <button class="btn btn-success mb-2" onclick="exportarPropiedadesExcel()">Exportar a Excel</button>
+        <div class="row">
+          <div class="col-6">
+            <button class="btn btn-warning w-100 mb-2" onclick="exportarPropiedades()">Exportar a JSON</button>
+          </div>
+          <div class="col-6">
+            <button class="btn btn-success w-100 mb-2" onclick="exportarPropiedadesExcel()">Exportar a Excel</button>
+          </div>
+        </div>
+
+        <button class="btn btn-danger mb-2" onclick="escalarObjeto()">Escalar / Desescalar Objeto</button>
+
         <ul id="tree-models" class="treeview"></ul>
       </div>
 
