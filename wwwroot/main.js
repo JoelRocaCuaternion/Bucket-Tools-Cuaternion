@@ -523,485 +523,406 @@ document.addEventListener('model-uploaded', (e) => {
     setupModelTree(viewerInstance, urn);
 });
 
-// Extraer JSON - VERSIÓN OPTIMIZADA PARA PLANTAS INDUSTRIALES
-
+// Extraer JSON
 async function exportarPropiedades() {
-    
-    // Verificar que hay un viewer activo y un modelo cargado
-    if (!viewerInstance) {
-        showMessage('❌ No hay un visor activo', 'error');
+    if (!viewerInstance || !viewerInstance.model || !selectedUrn) {
+        showMessage('❌ No hay un modelo válido', 'error');
         return;
     }
 
     const model = viewerInstance.model;
-    if (!model) {
-        showMessage('❌ No hay un modelo cargado', 'error');
+    const instanceTree = model.getInstanceTree();
+    
+    if (!instanceTree) {
+        showMessage('❌ No se pudo acceder al árbol de instancias', 'error');
         return;
     }
 
-    if (!selectedUrn) {
-        showMessage('❌ No hay un modelo seleccionado', 'error');
-        return;
-    }
+    // Configuración optimizada
+    const CONFIG = {
+        BATCH_SIZE: 50,           // Procesar en lotes de 50
+        PROGRESS_UPDATE: 100,     // Actualizar progreso cada 100 objetos
+        PAUSE_DURATION: 10,       // Pausa entre lotes para memoria
+        PAUSE_EVERY_BATCHES: 10   // Pausa cada 10 lotes
+    };
 
-    showMessage('⏳ Extrayendo objetos del modelo (modo rápido)...', 'info');
+    let currentMessage = showMessage('⏳ Iniciando exportación JSON...', 'info');
+    let startTime = Date.now();
 
     try {
-        // Obtener el árbol de instancias del modelo
-        const instanceTree = model.getInstanceTree();
-        if (!instanceTree) {
-            showMessage('❌ No se pudo acceder al árbol de instancias del modelo', 'error');
-            return;
-        }
+        // Recolectar todos los dbIds
+        const rootId = instanceTree.getRootId();
+        const allDbIds = [];
+        
+        instanceTree.enumNodeChildren(rootId, function collectIds(dbId) {
+            allDbIds.push(dbId);
+            instanceTree.enumNodeChildren(dbId, collectIds);
+        });
 
-        // Objeto principal que contendrá toda la información
+        console.log(`📊 Total de objetos a procesar: ${allDbIds.length}`);
+
         const modelData = {
             metadata: {
                 urn: selectedUrn,
                 exportDate: new Date().toISOString(),
-                modelName: model.getData().name || 'Modelo sin nombre',
+                modelName: model.getData().name || 'sin_nombre',
+                totalNodes: allDbIds.length,
                 totalObjects: 0,
                 processedNodes: 0,
-                startTime: Date.now()
+                validObjects: 0,
+                startTime: startTime,
+                version: '2.0_optimizado'
             },
             objects: []
         };
 
-        // Recopilar TODOS los dbIds de una vez (ultra rápido)
-        const collectAllDbIds = (nodeId, dbIds = []) => {
-            dbIds.push(nodeId);
-            instanceTree.enumNodeChildren(nodeId, (childNodeId) => {
-                collectAllDbIds(childNodeId, dbIds);
-            });
-            return dbIds;
+        // Función para actualizar progreso
+        const updateProgress = (current, total, validCount) => {
+            const percent = Math.round((current / total) * 100);
+            const elapsed = Date.now() - startTime;
+            const speed = Math.round(current / (elapsed / 1000));
+            const eta = current > 0 ? Math.round((total - current) / speed) : 0;
+            
+            const message = `📊 Procesando JSON: ${percent}% (${current}/${total}) - ${validCount} válidos - ${speed} obj/seg - ETA: ${eta}s`;
+            
+            if (currentMessage && currentMessage.remove) {
+                currentMessage.remove();
+            }
+            currentMessage = showMessage(message, 'info');
         };
 
-        const rootId = instanceTree.getRootId();
-        const allDbIds = collectAllDbIds(rootId);
+        // Función para procesar un lote
+        const processBatch = async (dbIdBatch) => {
+            const batchResults = [];
+            
+            for (const dbId of dbIdBatch) {
+                try {
+                    const result = await new Promise((resolve) => {
+                        model.getProperties(dbId, (properties) => {
+                            modelData.metadata.processedNodes++;
+                            
+                            if (!properties?.properties?.length) {
+                                resolve(null);
+                                return;
+                            }
 
-        // Configuración para procesamiento masivo
-        const BATCH_SIZE = 100; // Procesar 100 objetos simultáneamente
-        const processedDbIds = new Set();
-        let processedCount = 0;
-        let successfulObjects = 0;
-
-        // Función optimizada para procesar múltiples objetos
-        const processBatchFast = (dbIdsBatch) => {
-            const promises = dbIdsBatch.map(dbId => {
-                if (processedDbIds.has(dbId)) {
-                    return Promise.resolve(null);
-                }
-                
-                processedDbIds.add(dbId);
-                
-                return new Promise((resolve) => {
-                    model.getProperties(dbId, (properties) => {
-                        processedCount++;
-                        
-                        // Progreso cada 200 objetos
-                        if (processedCount % 200 === 0) {
-                            const progress = Math.round((processedCount / allDbIds.length) * 100);
-                        }
-
-                        // Solo objetos con propiedades reales
-                        if (properties && properties.properties && properties.properties.length > 0) {
                             const objectName = instanceTree.getNodeName(dbId) || `Objeto_${dbId}`;
                             
-                            const objectData = {
+                            const obj = {
                                 dbId: dbId,
                                 name: objectName,
                                 externalId: properties.externalId || null,
                                 properties: {}
                             };
-
+                            
                             // Procesar propiedades de forma eficiente
-                            properties.properties.forEach(prop => {
-                                const category = prop.displayCategory || 'Item';
+                            for (const prop of properties.properties) {
+                                const category = prop.displayCategory || 'General';
+                                const propName = prop.displayName;
+                                const propValue = prop.displayValue;
                                 
-                                if (!objectData.properties[category]) {
-                                    objectData.properties[category] = {};
+                                if (propValue && propValue !== 'null') {
+                                    if (!obj.properties[category]) {
+                                        obj.properties[category] = {};
+                                    }
+                                    obj.properties[category][propName] = propValue;
                                 }
-                                
-                                objectData.properties[category][prop.displayName] = {
-                                    value: prop.displayValue,
-                                    units: prop.units || null
-                                };
-                            });
-
-                            if (Object.keys(objectData.properties).length > 0) {
-                                successfulObjects++;
-                                resolve(objectData);
-                                return;
                             }
-                        }
-                        
-                        resolve(null);
-                    }, () => {
-                        processedCount++;
-                        resolve(null);
+                            
+                            // Solo agregar si tiene propiedades válidas
+                            if (Object.keys(obj.properties).length > 0) {
+                                modelData.metadata.validObjects++;
+                                resolve(obj);
+                            } else {
+                                resolve(null);
+                            }
+                            
+                        }, () => {
+                            modelData.metadata.processedNodes++;
+                            resolve(null);
+                        });
                     });
-                });
-            });
 
-            return Promise.all(promises);
+                    if (result) {
+                        batchResults.push(result);
+                    }
+
+                } catch (error) {
+                    console.warn(`Error procesando objeto ${dbId}:`, error);
+                    modelData.metadata.processedNodes++;
+                }
+            }
+
+            return batchResults;
         };
 
-        // Procesar TODO en lotes grandes y paralelos       
-        const startTime = Date.now();
-        const allPromises = [];
-
-        // Dividir en lotes grandes y procesarlos en paralelo
-        for (let i = 0; i < allDbIds.length; i += BATCH_SIZE) {
-            const batch = allDbIds.slice(i, i + BATCH_SIZE);
-            allPromises.push(processBatchFast(batch));
+        // Procesar todos los objetos en lotes
+        let batchCount = 0;
+        
+        for (let i = 0; i < allDbIds.length; i += CONFIG.BATCH_SIZE) {
+            const batch = allDbIds.slice(i, i + CONFIG.BATCH_SIZE);
+            const batchResults = await processBatch(batch);
+            
+            // Agregar resultados al array principal
+            modelData.objects.push(...batchResults);
+            modelData.metadata.totalObjects += batchResults.length;
+            
+            batchCount++;
+            
+            // Actualizar progreso
+            if (modelData.metadata.processedNodes % CONFIG.PROGRESS_UPDATE === 0) {
+                updateProgress(
+                    modelData.metadata.processedNodes, 
+                    allDbIds.length, 
+                    modelData.metadata.validObjects
+                );
+            }
+            
+            // Pausa estratégica para memoria
+            if (batchCount % CONFIG.PAUSE_EVERY_BATCHES === 0) {
+                await new Promise(resolve => setTimeout(resolve, CONFIG.PAUSE_DURATION));
+            }
         }
 
-        // Esperar a que terminen TODOS los lotes
-        const results = await Promise.all(allPromises);
-        
-        // Recopilar todos los resultados válidos
-        results.forEach(batchResults => {
-            batchResults.forEach(object => {
-                if (object) {
-                    modelData.objects.push(object);
-                    modelData.metadata.totalObjects++;
-                }
-            });
-        });
-
+        // Actualizar metadata final
         const processingTime = Date.now() - startTime;
         modelData.metadata.processingTimeMs = processingTime;
-        modelData.metadata.processedNodes = processedCount;
-        
-        if (modelData.objects.length === 0) {
-            showMessage('⚠️ No se encontraron objetos con propiedades en el modelo', 'warning');
-            return;
+        modelData.metadata.processingTimeSeconds = Math.round(processingTime / 1000);
+        modelData.metadata.averageSpeed = Math.round(modelData.metadata.processedNodes / (processingTime / 1000));
+        modelData.metadata.successRate = Math.round((modelData.metadata.validObjects / modelData.metadata.processedNodes) * 100);
+
+        // Mostrar progreso final antes de generar archivo
+        if (currentMessage && currentMessage.remove) {
+            currentMessage.remove();
         }
+        currentMessage = showMessage('💾 Generando archivo JSON...', 'info');
 
-        // Crear y descargar el archivo JSON de forma eficiente
-
-        
-        const jsonString = JSON.stringify(modelData, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
+        // Generar y descargar archivo
+        const json = JSON.stringify(modelData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         
-        // Nombre de archivo con información de rendimiento
-        const modelName = modelData.metadata.modelName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        const filename = `planta_industrial_${modelName}_${modelData.metadata.totalObjects}obj_${timestamp}.json`;
+        const modelName = modelData.metadata.modelName.replace(/[^a-zA-Z0-9]/g, '_');
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `${modelName}_${modelData.metadata.validObjects}obj_${timestamp}.json`;
         
-        // Descarga automática
-        const downloadLink = document.createElement('a');
-        downloadLink.href = url;
-        downloadLink.download = filename;
-        downloadLink.style.display = 'none';
-        
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
         
         URL.revokeObjectURL(url);
         
-        const successRate = Math.round((modelData.metadata.totalObjects / allDbIds.length) * 100);
-        showMessage(`🚀 EXPORTACIÓN COMPLETADA: ${modelData.metadata.totalObjects} objetos en ${(processingTime/1000).toFixed(1)}s (${successRate}% éxito)`, 'success');
+        // Mensaje de éxito final
+        if (currentMessage && currentMessage.remove) {
+            currentMessage.remove();
+        }
+        
+        const timeStr = (processingTime / 1000).toFixed(1);
+        const speed = Math.round(modelData.metadata.processedNodes / (processingTime / 1000));
+        const successRate = modelData.metadata.successRate;
+        
+        showMessage(
+            `✅ JSON GENERADO: ${filename} - ${modelData.metadata.validObjects} objetos en ${timeStr}s - ${speed} obj/seg (${successRate}% éxito)`,
+            'success'
+        );
+
+        console.log('📊 Exportación JSON completada:', {
+            archivo: filename,
+            objetosValidos: modelData.metadata.validObjects,
+            nodosProcessados: modelData.metadata.processedNodes,
+            tiempo: `${timeStr}s`,
+            velocidad: `${speed} obj/seg`,
+            tasaExito: `${successRate}%`
+        });
 
     } catch (error) {
-        console.error('❌ Error en procesamiento rápido:', error);
-        showMessage('❌ Error en el procesamiento rápido. Revisa la consola.', 'error');
+        console.error('❌ Error en exportación JSON:', error);
+        
+        if (currentMessage && currentMessage.remove) {
+            currentMessage.remove();
+        }
+        
+        showMessage(`❌ Error al exportar JSON: ${error.message}`, 'error');
     }
 }
 
 window.exportarPropiedades = exportarPropiedades;
 
-// Excel - VERSIÓN OPTIMIZADA PARA PLANTAS INDUSTRIALES
+// Excel
 
 async function exportarPropiedadesExcel() {
-    
-    // Verificar que hay un viewer activo y un modelo cargado
-    if (!viewerInstance) {
-        showMessage('❌ No hay un visor activo', 'error');
+    if (!viewerInstance?.model || !selectedUrn) {
+        showMessage('❌ No hay un modelo válido cargado', 'error');
         return;
     }
 
     const model = viewerInstance.model;
-    if (!model) {
-        showMessage('❌ No hay un modelo cargado', 'error');
+    const instanceTree = model.getInstanceTree();
+    
+    if (!instanceTree) {
+        showMessage('❌ No se pudo acceder al árbol de instancias', 'error');
         return;
     }
 
-    if (!selectedUrn) {
-        showMessage('❌ No hay un modelo seleccionado', 'error');
-        return;
-    }
-
-    showMessage('⏳ Extrayendo objetos del modelo para Excel...', 'info');
+    const loadingMessage = showMessage('⏳ Exportación MÍNIMA para archivos ultra-pesados...', 'info');
 
     try {
-        // Obtener el árbol de instancias del modelo
-        const instanceTree = model.getInstanceTree();
-        if (!instanceTree) {
-            showMessage('❌ No se pudo acceder al árbol de instancias del modelo', 'error');
-            return;
-        }
-
-        // Metadata del modelo
-        const modelMetadata = {
-            urn: selectedUrn,
-            exportDate: new Date().toISOString(),
-            modelName: model.getData().name || 'Modelo sin nombre',
-            totalObjects: 0,
-            processedNodes: 0,
-            startTime: Date.now()
+        // Configuración ultra-minimalista
+        const CONFIG = {
+            BATCH_SIZE: 50,
+            WRITE_EVERY: 500,
+            MAX_PROPERTIES: 5,  // Solo 5 propiedades más importantes
+            PROGRESS_UPDATE: 200
         };
 
-        // Recopilar TODOS los dbIds de una vez
-        const collectAllDbIds = (nodeId, dbIds = []) => {
-            dbIds.push(nodeId);
-            instanceTree.enumNodeChildren(nodeId, (childNodeId) => {
-                collectAllDbIds(childNodeId, dbIds);
-            });
-            return dbIds;
-        };
-
+        // Recolectar dbIds
+        const allDbIds = [];
         const rootId = instanceTree.getRootId();
-        const allDbIds = collectAllDbIds(rootId);
+        
+        instanceTree.enumNodeChildren(rootId, function collectIds(dbId) {
+            allDbIds.push(dbId);
+            instanceTree.enumNodeChildren(dbId, collectIds);
+        });
 
-        // Arrays para almacenar los datos de Excel
-        const excelData = [];
-        const allProperties = new Set(); // Para recopilar todas las propiedades únicas
+        const workbook = XLSX.utils.book_new();
+        let worksheet = null;
+        let currentRow = 1;
+        let isFirstBatch = true;
+        let validObjects = 0;
 
-        // Configuración para procesamiento
-        const BATCH_SIZE = 100;
-        const processedDbIds = new Set();
-        let processedCount = 0;
+        // Headers fijos y mínimos
+        const headers = ['ID', 'Nombre', 'ID_Externo', 'Categoria', 'Tipo', 'Material', 'Dimensiones', 'Codigo', 'Descripcion'];
 
-        // Función para procesar objetos para Excel
-        const processBatchForExcel = (dbIdsBatch) => {
-            const promises = dbIdsBatch.map(dbId => {
-                if (processedDbIds.has(dbId)) {
-                    return Promise.resolve(null);
-                }
-                
-                processedDbIds.add(dbId);
-                
-                return new Promise((resolve) => {
-                    model.getProperties(dbId, (properties) => {
-                        processedCount++;
-                        
-                        if (processedCount % 200 === 0) {
-                            const progress = Math.round((processedCount / allDbIds.length) * 100);
-                        }
-
-                        if (properties && properties.properties && properties.properties.length > 0) {
-                            const objectName = instanceTree.getNodeName(dbId) || `Objeto_${dbId}`;
-                            
-                            // Crear fila para Excel
-                            const rowData = {
-                                'ID': dbId,
-                                'Nombre': objectName,
-                                'ID Externo': properties.externalId || '',
-                                'Categoría Principal': ''
-                            };
-
-                            // Procesar propiedades y aplanarlas para Excel
-                            let mainCategory = '';
-                            properties.properties.forEach(prop => {
-                                const category = prop.displayCategory || 'Item';
-                                const propName = prop.displayName;
-                                const propValue = prop.displayValue || '';
-                                const propUnits = prop.units ? ` (${prop.units})` : '';
-                                
-                                // Crear columna única para cada propiedad
-                                const columnName = `${category} - ${propName}${propUnits}`;
-                                rowData[columnName] = propValue;
-                                
-                                // Guardar todas las propiedades para las columnas
-                                allProperties.add(columnName);
-                                
-                                // Determinar categoría principal
-                                if (!mainCategory && category !== 'Item') {
-                                    mainCategory = category;
-                                }
-                            });
-
-                            rowData['Categoría Principal'] = mainCategory || 'Sin categoría';
-                            
-                            if (Object.keys(rowData).length > 4) { // Más que las columnas básicas
-                                modelMetadata.totalObjects++;
-                                resolve(rowData);
+        const processBatchMinimo = async (dbIdBatch) => {
+            const results = [];
+            
+            for (const dbId of dbIdBatch) {
+                try {
+                    const result = await new Promise((resolve) => {
+                        model.getProperties(dbId, (properties) => {
+                            if (!properties?.properties?.length) {
+                                resolve(null);
                                 return;
                             }
-                        }
-                        
-                        resolve(null);
-                    }, () => {
-                        processedCount++;
-                        resolve(null);
-                    });
-                });
-            });
 
-            return Promise.all(promises);
+                            const objectName = instanceTree.getNodeName(dbId) || `Objeto_${dbId}`;
+                            const rowData = {
+                                ID: dbId,
+                                Nombre: objectName,
+                                ID_Externo: properties.externalId || '',
+                                Categoria: '',
+                                Tipo: '',
+                                Material: '',
+                                Dimensiones: '',
+                                Codigo: '',
+                                Descripcion: ''
+                            };
+
+                            // Buscar solo propiedades clave
+                            let propCount = 0;
+                            for (const prop of properties.properties) {
+                                if (propCount >= CONFIG.MAX_PROPERTIES) break;
+                                
+                                const name = prop.displayName?.toLowerCase() || '';
+                                const value = prop.displayValue;
+                                
+                                if (value && value !== 'null') {
+                                    if (name.includes('category') || name.includes('categoria')) {
+                                        rowData.Categoria = value;
+                                    } else if (name.includes('type') || name.includes('tipo')) {
+                                        rowData.Tipo = value;
+                                    } else if (name.includes('material')) {
+                                        rowData.Material = value;
+                                    } else if (name.includes('size') || name.includes('dimension')) {
+                                        rowData.Dimensiones = value;
+                                    } else if (name.includes('code') || name.includes('codigo')) {
+                                        rowData.Codigo = value;
+                                    } else if (name.includes('description') || name.includes('descripcion')) {
+                                        rowData.Descripcion = value;
+                                    }
+                                    propCount++;
+                                }
+                            }
+
+                            resolve(rowData);
+                        }, () => resolve(null));
+                    });
+
+                    if (result) {
+                        results.push(result);
+                        validObjects++;
+                    }
+
+                } catch (error) {
+                    console.warn(`Error procesando objeto ${dbId}:`, error);
+                }
+            }
+
+            return results;
         };
 
-        // Procesar todos los lotes
-        const startTime = Date.now();
-        const allPromises = [];
+        // Procesar en lotes
+        let accumulatedData = [];
+        let totalProcessed = 0;
 
-        for (let i = 0; i < allDbIds.length; i += BATCH_SIZE) {
-            const batch = allDbIds.slice(i, i + BATCH_SIZE);
-            allPromises.push(processBatchForExcel(batch));
-        }
+        for (let i = 0; i < allDbIds.length; i += CONFIG.BATCH_SIZE) {
+            const batch = allDbIds.slice(i, i + CONFIG.BATCH_SIZE);
+            const batchData = await processBatchMinimo(batch);
+            
+            accumulatedData.push(...batchData);
+            totalProcessed += batch.length;
 
-        const results = await Promise.all(allPromises);
-        
-        // Recopilar resultados
-        results.forEach(batchResults => {
-            batchResults.forEach(object => {
-                if (object) {
-                    excelData.push(object);
+            // Actualizar progreso
+            if (totalProcessed % CONFIG.PROGRESS_UPDATE === 0) {
+                const percent = Math.round((totalProcessed / allDbIds.length) * 100);
+                showMessage(`📊 Procesando MÍNIMO: ${percent}% - ${validObjects} objetos`, 'info');
+            }
+
+            // Escribir datos
+            if (accumulatedData.length >= CONFIG.WRITE_EVERY || i + CONFIG.BATCH_SIZE >= allDbIds.length) {
+                if (isFirstBatch) {
+                    worksheet = XLSX.utils.json_to_sheet(accumulatedData, { header: headers });
+                    worksheet['!cols'] = headers.map(h => ({ width: h === 'Nombre' ? 30 : 20 }));
+                    XLSX.utils.book_append_sheet(workbook, worksheet, 'Objetos_Minimo');
+                    isFirstBatch = false;
+                } else {
+                    XLSX.utils.sheet_add_json(worksheet, accumulatedData, { 
+                        skipHeader: true, 
+                        origin: currentRow 
+                    });
                 }
-            });
-        });
-
-        const processingTime = Date.now() - startTime;
-        modelMetadata.processingTimeMs = processingTime;
-        modelMetadata.processedNodes = processedCount;
-        
-        if (excelData.length === 0) {
-            showMessage('⚠️ No se encontraron objetos con propiedades para Excel', 'warning');
-            return;
+                
+                currentRow += accumulatedData.length;
+                accumulatedData = [];
+                
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
         }
 
-        // Crear el libro de Excel
+        // Generar archivo
+        const modelName = model.getData().name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Modelo_NWD';
+        const filename = `${modelName}_MINIMO_${validObjects}obj.xlsx`;
         
-        // Crear un nuevo libro de trabajo
-        const workbook = XLSX.utils.book_new();
+        XLSX.writeFile(workbook, filename);
 
-        // Hoja 1: Resumen/Metadata
-        const summaryData = [
-            ['📋 RESUMEN DE EXPORTACIÓN'],
-            [''],
-            ['Modelo:', modelMetadata.modelName],
-            ['URN:', modelMetadata.urn],
-            ['Fecha de exportación:', new Date(modelMetadata.exportDate).toLocaleString()],
-            ['Total de objetos:', modelMetadata.totalObjects],
-            ['Nodos procesados:', modelMetadata.processedNodes],
-            ['Tiempo de procesamiento:', `${(processingTime/1000).toFixed(2)} segundos`],
-            ['Velocidad:', `${Math.round(allDbIds.length / (processingTime/1000))} objetos/segundo`],
-            [''],
-            ['🔧 ESTADÍSTICAS'],
-            ['Tasa de éxito:', `${Math.round((modelMetadata.totalObjects / allDbIds.length) * 100)}%`],
-            ['Total de propiedades únicas:', allProperties.size],
-            ['Objetos con propiedades:', excelData.length]
-        ];
-
-        const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-        
-        // Aplicar estilos básicos al resumen
-        summarySheet['!cols'] = [
-            { width: 25 },
-            { width: 50 }
-        ];
-
-        XLSX.utils.book_append_sheet(workbook, summarySheet, '📋 Resumen');
-
-        // Hoja 2: Datos principales
-        if (excelData.length > 0) {
-            // Ordenar las columnas: primero las básicas, luego las propiedades alfabéticamente
-            const basicColumns = ['ID', 'Nombre', 'ID Externo', 'Categoría Principal'];
-            const propertyColumns = Array.from(allProperties).sort();
-            const orderedColumns = [...basicColumns, ...propertyColumns];
-
-            // Crear datos ordenados
-            const orderedData = excelData.map(row => {
-                const orderedRow = {};
-                orderedColumns.forEach(col => {
-                    orderedRow[col] = row[col] || '';
-                });
-                return orderedRow;
-            });
-
-            const dataSheet = XLSX.utils.json_to_sheet(orderedData, { header: orderedColumns });
-            
-            // Configurar anchos de columna
-            const colWidths = orderedColumns.map(col => {
-                if (col === 'ID') return { width: 8 };
-                if (col === 'Nombre') return { width: 30 };
-                if (col === 'ID Externo') return { width: 20 };
-                if (col === 'Categoría Principal') return { width: 20 };
-                return { width: 25 };
-            });
-            
-            dataSheet['!cols'] = colWidths;
-
-            // Congelar la primera fila (encabezados)
-            dataSheet['!freeze'] = { xSplit: 0, ySplit: 1 };
-
-            XLSX.utils.book_append_sheet(workbook, dataSheet, '🏭 Objetos del Modelo');
+        if (loadingMessage && loadingMessage.remove) {
+            loadingMessage.remove();
         }
 
-        // Hoja 3: Resumen por categorías
-        const categoryStats = {};
-        excelData.forEach(obj => {
-            const category = obj['Categoría Principal'] || 'Sin categoría';
-            categoryStats[category] = (categoryStats[category] || 0) + 1;
-        });
-
-        const categoryData = [
-            ['📊 OBJETOS POR CATEGORÍA'],
-            [''],
-            ['Categoría', 'Cantidad', 'Porcentaje']
-        ];
-
-        Object.entries(categoryStats)
-            .sort((a, b) => b[1] - a[1])
-            .forEach(([category, count]) => {
-                const percentage = Math.round((count / excelData.length) * 100);
-                categoryData.push([category, count, `${percentage}%`]);
-            });
-
-        const categorySheet = XLSX.utils.aoa_to_sheet(categoryData);
-        categorySheet['!cols'] = [
-            { width: 30 },
-            { width: 15 },
-            { width: 15 }
-        ];
-
-        XLSX.utils.book_append_sheet(workbook, categorySheet, '📊 Por Categorías');
-
-        // Generar el archivo Excel
-        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        
-        // Crear nombre de archivo
-        const modelName = modelMetadata.modelName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        const filename = `planta_industrial_${modelName}_${modelMetadata.totalObjects}obj_${timestamp}.xlsx`;
-        
-        // Descargar archivo
-        const url = URL.createObjectURL(blob);
-        const downloadLink = document.createElement('a');
-        downloadLink.href = url;
-        downloadLink.download = filename;
-        downloadLink.style.display = 'none';
-        
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        
-        URL.revokeObjectURL(url);
-        
-        const successRate = Math.round((modelMetadata.totalObjects / allDbIds.length) * 100);
-        showMessage(`📊 EXCEL GENERADO: ${modelMetadata.totalObjects} objetos en ${(processingTime/1000).toFixed(1)}s (${successRate}% éxito)`, 'success');
+        showMessage(`✅ EXCEL MÍNIMO: ${filename} - ${validObjects} objetos exportados`, 'success');
 
     } catch (error) {
-        console.error('❌ Error en exportación a Excel:', error);
-        showMessage('❌ Error en la exportación a Excel. Revisa la consola.', 'error');
+        console.error('❌ Error en exportación mínima:', error);
+        
+        if (loadingMessage && loadingMessage.remove) {
+            loadingMessage.remove();
+        }
+        
+        showMessage(`❌ Error: ${error.message}`, 'error');
     }
 }
 
-// Hacer la función disponible globalmente
 window.exportarPropiedadesExcel = exportarPropiedadesExcel;
 
 // Función principal para escalar/desescalar
