@@ -56,16 +56,37 @@
         <div id="preview"></div>
       </div>
 
-      <!-- Panel de Incidencias -->
-      <div class="issues-panel col-3 p-0" id="issuesPanel">
-          <div class="panel-header">
-            <span>Incidencias</span>
+       <div class="issues-panel col-3 bg-light p-0 d-flex flex-column" id="issuesPanel">
+            <div class="panel-header">
+                <span>Incidencias</span>
             </div>
+            
+            <!-- Sección de filtros -->
+            <div class="filters-section">
+                <div class="filter-group">
+                    <label class="filter-label">Buscar</label>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Buscar incidencias...">
+                </div>
+                
+                <div class="filter-group">
+                    <label class="filter-label">Severidad</label>
+                    <div class="filter-buttons">
+                        <button class="filter-btn severity-high active" data-filter="severity" data-value="high">Alta</button>
+                        <button class="filter-btn severity-medium active" data-filter="severity" data-value="medium">Media</button>
+                        <button class="filter-btn severity-low active" data-filter="severity" data-value="low">Normal</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Contador de resultados -->
+            <div class="results-count" id="resultsCount">
+                Mostrando 0 de 0 incidencias
+            </div>
+            
             <div class="issues-list" id="issuesList">
-            <!-- Las incidencias se generarán dinámicamente -->
+                <!-- Las incidencias se generarán dinámicamente -->
             </div>
-          </div>
-      </div> 
+        </div>
     </div>
   </div>
 

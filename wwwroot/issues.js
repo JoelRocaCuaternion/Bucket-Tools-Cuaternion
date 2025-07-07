@@ -2,9 +2,17 @@ class IssuesManager {
     constructor(viewer) {
         this.viewer = viewer;
         this.issues = [];
+        this.filteredIssues = []; // Nueva propiedad para issues filtrados
         this.activeMarkers = new Map();
-        this.activeIssues = new Set(); // Cambio: Set para múltiples incidencias activas
+        this.activeIssues = new Set();
         this.markerUpdateInterval = null;
+        
+        // Nuevas propiedades para filtros
+        this.filters = {
+            search: '',
+            severity: ['high', 'medium', 'low'],
+            status: ['open', 'in-progress', 'resolved']
+        };
         
         this.init();
     }
@@ -12,15 +20,24 @@ class IssuesManager {
     init() {
         this.loadSampleIssues();
         this.setupEventListeners();
+        this.setupFilterListeners(); // Nuevo método para filtros
+        this.applyFilters(); // Aplicar filtros iniciales
     }
 
     loadSampleIssues() {
+        // Actualizar datos de ejemplo con más campos para filtros
         this.issues = [
             {
                 dbId: 3,
                 tag: "#326441",
                 name: "ACPPPIPE",
                 color: "red",
+                severity: "high",
+                status: "open",
+                type: "Fontanería",
+                location: "Sótano - Tubería Principal",
+                assignee: "Juan Pérez",
+                date: "2024-01-15",
                 description: "Fuga detectada en la tubería principal. Requiere atención inmediata."
             },
             {
@@ -28,6 +45,12 @@ class IssuesManager {
                 tag: "#643201",
                 name: "VALVE_001",
                 color: "orange",
+                severity: "medium",
+                status: "in-progress",
+                type: "Mecánico",
+                location: "Sala de Máquinas",
+                assignee: "María García",
+                date: "2024-01-14",
                 description: "Válvula con presión irregular. Revisar calibración."
             },
             {
@@ -35,6 +58,12 @@ class IssuesManager {
                 tag: "#335464",
                 name: "SENSOR_TEMP",
                 color: "green",
+                severity: "low",
+                status: "resolved",
+                type: "Instrumentación",
+                location: "Planta 2 - Sensor Ambiente",
+                assignee: "Carlos López",
+                date: "2024-01-13",
                 description: "Sensor funcionando correctamente. Última lectura: 21.5°C"
             },
             {
@@ -42,23 +71,101 @@ class IssuesManager {
                 tag: "#666421",
                 name: "PUMP_MAIN",
                 color: "red",
+                severity: "high",
+                status: "open",
+                type: "Mecánico",
+                location: "Cuarto de Bombas",
+                assignee: "Ana Martín",
+                date: "2024-01-12",
                 description: "Bomba principal con sobrecalentamiento. Parar inmediatamente."
             }
         ];
 
-        this.renderIssues();
+        this.applyFilters();
     }
 
+    // Nuevo método para aplicar filtros
+    applyFilters() {
+        this.filteredIssues = this.issues.filter(issue => {
+            // Filtro de búsqueda
+            if (this.filters.search) {
+                const searchMatch = 
+                    issue.tag.toLowerCase().includes(this.filters.search) ||
+                    issue.name.toLowerCase().includes(this.filters.search) ||
+                    issue.type.toLowerCase().includes(this.filters.search) ||
+                    issue.location.toLowerCase().includes(this.filters.search) ||
+                    issue.description.toLowerCase().includes(this.filters.search);
+                
+                if (!searchMatch) return false;
+            }
+
+            // Filtro de severidad
+            if (!this.filters.severity.includes(issue.severity)) return false;
+
+            // Filtro de estado
+            if (!this.filters.status.includes(issue.status)) return false;
+
+            return true;
+        });
+
+        this.renderIssues();
+        this.updateResultsCount();
+    }
+
+    // método para configurar listeners de filtros
+    setupFilterListeners() {
+        // Evento de búsqueda
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.filters.search = e.target.value.toLowerCase();
+                this.applyFilters();
+            });
+        }
+
+        // Eventos de filtros
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filter = e.target.dataset.filter;
+                const value = e.target.dataset.value;
+                
+                e.target.classList.toggle('active');
+                
+                if (e.target.classList.contains('active')) {
+                    if (!this.filters[filter].includes(value)) {
+                        this.filters[filter].push(value);
+                    }
+                } else {
+                    this.filters[filter] = this.filters[filter].filter(v => v !== value);
+                }
+                
+                this.applyFilters();
+            });
+        });
+    }
+
+    // Método actualizado para renderizar issues filtrados
     renderIssues() {
         const issuesList = document.getElementById('issuesList');
+        if (!issuesList) return;
+
         issuesList.innerHTML = '';
 
-        this.issues.forEach((issue, index) => {
+        if (this.filteredIssues.length === 0) {
+            const noResults = document.createElement('div');
+            noResults.className = 'no-results';
+            noResults.textContent = 'No se encontraron incidencias que coincidan con los filtros seleccionados';
+            issuesList.appendChild(noResults);
+            return;
+        }
+
+        this.filteredIssues.forEach((issue, index) => {
             const issueElement = this.createIssueElement(issue, index);
             issuesList.appendChild(issueElement);
         });
     }
 
+    // Método actualizado para crear elementos de issue con más información
     createIssueElement(issue, index) {
         const issueDiv = document.createElement('div');
         issueDiv.className = 'issue-item';
@@ -88,6 +195,33 @@ class IssuesManager {
         return issueDiv;
     }
 
+    // Nuevos métodos de utilidad
+    getStatusText(status) {
+        switch (status) {
+            case 'open': return 'Abierto';
+            case 'in-progress': return 'En progreso';
+            case 'resolved': return 'Resuelto';
+            default: return status;
+        }
+    }
+
+    updateResultsCount() {
+        const countElement = document.getElementById('resultsCount');
+        if (countElement) {
+            const total = this.issues.length;
+            const filtered = this.filteredIssues.length;
+            countElement.textContent = `Mostrando ${filtered} de ${total} incidencias`;
+        }
+    }
+
+    // Método actualizado para manejar clicks (usar filteredIssues)
+    handleIssueClick(issueItem) {
+        const issueIndex = parseInt(issueItem.dataset.issueIndex);
+        const issue = this.filteredIssues[issueIndex]; // Usar filteredIssues
+
+        this.toggleIssueDetails(issueItem, issue);
+    }
+
     setupEventListeners() {
         // Event listener para clicks en las incidencias
         document.getElementById('issuesList').addEventListener('click', (e) => {
@@ -106,14 +240,6 @@ class IssuesManager {
         this.viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, () => {
             this.updateMarkersPosition();
         });
-    }
-
-    handleIssueClick(issueItem) {
-        const issueIndex = parseInt(issueItem.dataset.issueIndex);
-        const issue = this.issues[issueIndex];
-
-        // Alternar solo esta incidencia específica
-        this.toggleIssueDetails(issueItem, issue);
     }
 
     toggleIssueDetails(issueItem, issue) {
@@ -160,15 +286,12 @@ class IssuesManager {
     }
 
     highlightObject(dbId) {
-        // Ya no limpiar todos los highlights, solo agregar el nuevo
         this.viewer.setThemingColor(dbId, new THREE.Vector4(1, 0.5, 0, 1));
         
-        // Guardar timeout para poder cancelarlo si es necesario
         const timeoutId = setTimeout(() => {
             this.removeHighlight(dbId);
         }, 10000);
         
-        // Guardar referencia del timeout por si necesitamos cancelarlo
         if (!this.highlightTimeouts) {
             this.highlightTimeouts = new Map();
         }
@@ -176,10 +299,8 @@ class IssuesManager {
     }
 
     removeHighlight(dbId) {
-        // Remover highlight específico
         this.viewer.setThemingColor(dbId, null);
         
-        // Limpiar timeout si existe
         if (this.highlightTimeouts && this.highlightTimeouts.has(dbId)) {
             clearTimeout(this.highlightTimeouts.get(dbId));
             this.highlightTimeouts.delete(dbId);
@@ -188,14 +309,10 @@ class IssuesManager {
 
     async showIssueMarker(issue) {
         try {
-            // Obtener la posición del objeto
             const bbox = await this.getObjectBoundingBox(issue.dbId);
             if (!bbox) return;
 
-            // Calcular posición central del objeto
             const center = bbox.center();
-            
-            // Crear marcador con la posición del objeto
             this.createMarker(center, issue);
 
         } catch (error) {
@@ -221,36 +338,27 @@ class IssuesManager {
     }
 
     createMarker(worldPosition, issue) {
-        // Remover marcador anterior si existe para este dbId específico
         this.removeMarker(issue.dbId);
 
-        // Crear nuevo marcador
         const marker = document.createElement('div');
         marker.className = `issue-marker ${issue.color}`;
         marker.dataset.dbId = issue.dbId;
 
-        // Guardar la posición del mundo 3D en el marcador
         marker.worldPosition = worldPosition;
 
-        // Calcular posición inicial en pantalla
         const screenPoint = this.viewer.worldToClient(worldPosition);
         marker.style.left = `${screenPoint.x - 10}px`;
         marker.style.top = `${screenPoint.y - 10}px`;
 
-        // Agregar al viewer
         this.viewer.container.appendChild(marker);
-        
-        // Guardar referencia
         this.activeMarkers.set(issue.dbId, marker);
     }
 
-    // Método para actualizar las posiciones de los marcadores
     updateMarkersPosition() {
         this.activeMarkers.forEach((marker, dbId) => {
             if (marker.worldPosition) {
                 const screenPoint = this.viewer.worldToClient(marker.worldPosition);
                 
-                // Verificar si el punto está visible en la pantalla
                 const rect = this.viewer.container.getBoundingClientRect();
                 if (screenPoint.x >= 0 && screenPoint.x <= rect.width && 
                     screenPoint.y >= 0 && screenPoint.y <= rect.height) {
@@ -258,23 +366,20 @@ class IssuesManager {
                     marker.style.top = `${screenPoint.y - 10}px`;
                     marker.style.display = 'block';
                 } else {
-                    // Ocultar marcador si está fuera de vista
                     marker.style.display = 'none';
                 }
             }
         });
     }
 
-    // Iniciar actualizaciones periódicas de marcadores
     startMarkerUpdates() {
         if (this.markerUpdateInterval) return;
         
         this.markerUpdateInterval = setInterval(() => {
             this.updateMarkersPosition();
-        }, 16); // ~60 FPS
+        }, 16);
     }
 
-    // Parar actualizaciones de marcadores
     stopMarkerUpdates() {
         if (this.markerUpdateInterval) {
             clearInterval(this.markerUpdateInterval);
@@ -298,13 +403,9 @@ class IssuesManager {
     }
 
     focusOnObject(dbId) {
-        // Aislar el objeto temporalmente
         this.viewer.isolate([dbId]);
-        
-        // Fit to view
         this.viewer.fitToView([dbId]);
         
-        // Restaurar vista completa después de 3 segundos
         setTimeout(() => {
             this.viewer.isolate();
         }, 3000);
@@ -312,40 +413,70 @@ class IssuesManager {
 
     onGeometryLoaded() {
         console.log('Geometría cargada - Issues Manager listo');
-        // Aquí puedes agregar lógica adicional cuando el modelo esté cargado
     }
 
-    // Método para agregar nuevas incidencias dinámicamente
+    // Métodos actualizados para trabajar con filtros
     addIssue(issue) {
         this.issues.push(issue);
-        this.renderIssues();
+        this.applyFilters(); // Aplicar filtros después de agregar
     }
 
-    // Método para remover incidencias
     removeIssue(dbId) {
         this.issues = this.issues.filter(issue => issue.dbId !== dbId);
         this.removeMarker(dbId);
         this.removeHighlight(dbId);
-        this.renderIssues();
+        this.applyFilters(); // Aplicar filtros después de remover
     }
 
-    // Método para actualizar incidencia
     updateIssue(dbId, updatedIssue) {
         const index = this.issues.findIndex(issue => issue.dbId === dbId);
         if (index !== -1) {
             this.issues[index] = { ...this.issues[index], ...updatedIssue };
-            this.renderIssues();
+            this.applyFilters(); // Aplicar filtros después de actualizar
         }
     }
 
-    // Método para obtener incidencias por color
-    getIssuesByColor(color) {
-        return this.issues.filter(issue => issue.color === color);
+    // Nuevos métodos para gestión de filtros
+    setSearchFilter(searchTerm) {
+        this.filters.search = searchTerm.toLowerCase();
+        this.applyFilters();
     }
 
-    // Método para limpiar todas las incidencias activas
+    setSeverityFilter(severities) {
+        this.filters.severity = Array.isArray(severities) ? severities : [severities];
+        this.applyFilters();
+    }
+
+    setStatusFilter(statuses) {
+        this.filters.status = Array.isArray(statuses) ? statuses : [statuses];
+        this.applyFilters();
+    }
+
+    resetFilters() {
+        this.filters = {
+            search: '',
+            severity: ['high', 'medium', 'low'],
+            status: ['open', 'in-progress', 'resolved']
+        };
+        
+        // Resetear UI de filtros
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.add('active');
+        });
+        
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        
+        this.applyFilters();
+    }
+
+    getIssuesByColor(color) {
+        return this.filteredIssues.filter(issue => issue.color === color);
+    }
+
     clearAllActiveIssues() {
-        // Cerrar todas las incidencias activas
         this.activeIssues.forEach(issueIndex => {
             const issueItem = document.querySelector(`[data-issue-index="${issueIndex}"]`);
             if (issueItem) {
@@ -358,7 +489,6 @@ class IssuesManager {
         this.activeIssues.clear();
         this.removeActiveMarkers();
         
-        // Limpiar todos los highlights
         this.viewer.clearThemingColors();
         if (this.highlightTimeouts) {
             this.highlightTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
@@ -366,21 +496,21 @@ class IssuesManager {
         }
     }
 
-    // Método para limpiar todas las incidencias
     clearAllIssues() {
         this.issues = [];
+        this.filteredIssues = [];
         this.clearAllActiveIssues();
         this.renderIssues();
+        this.updateResultsCount();
     }
 
-    // Método para limpiar recursos al destruir la instancia
     destroy() {
         this.stopMarkerUpdates();
         this.removeActiveMarkers();
         this.clearAllActiveIssues();
         this.issues = [];
+        this.filteredIssues = [];
         
-        // Limpiar timeouts de highlights
         if (this.highlightTimeouts) {
             this.highlightTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
             this.highlightTimeouts.clear();
