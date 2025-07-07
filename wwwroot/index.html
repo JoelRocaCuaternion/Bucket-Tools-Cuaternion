@@ -27,11 +27,24 @@
     </form>
   </nav>
 
+  <!-- Botones Flotantes para menú-->
+  <button class="btn btn-primary toggle-btn-left" id="floatingLeftBtn" onclick="toggleLeftPanel()" style="display: none;">
+      ⮞ Panel
+  </button>
+  <button class="btn btn-primary toggle-btn-right" id="floatingRightBtn" onclick="toggleRightPanel()" style="display: none;">
+      ⮜ Incidencias
+  </button>
+
   <!-- Main layout -->
   <div class="container-fluid h-100">
-    <div class="row h-100">
+    <div class="d-flex h-100 w-100" id="mainContent">
       <!-- Panel izquierdo -->
-      <div class="col-3 bg-light pt-3 d-flex flex-column" id="panel-izquierdo">
+      <div class="panel panel-left bg-light pt-3 d-flex flex-column" id="panel-izquierdo">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong>Panel</strong>
+          <button class="btn btn-sm btn-outline-secondary" onclick="toggleLeftPanel()">⮜</button>
+        </div>
+
         <div class="input-group mb-2">
           <input type="file" class="form-control" id="input" />
         </div>
@@ -52,11 +65,16 @@
       </div>
 
       <!-- Visor 3D -->
-      <div class="col-6 p-0">
+       <div class="viewer flex-grow-1 p-0" id="viewerContainer">
         <div id="preview"></div>
       </div>
 
-       <div class="issues-panel col-3 bg-light p-0 d-flex flex-column" id="issuesPanel">
+      <!-- Panel de incidencias -->
+       <div class="panel panel-right bg-light p-0 d-flex flex-column" id="issuesPanel">
+        <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+          <strong>Incidencias</strong>
+          <button class="btn btn-sm btn-outline-secondary" onclick="toggleRightPanel()">⮞</button>
+        </div>
             <div class="panel-header">
                 <span>Incidencias</span>
             </div>

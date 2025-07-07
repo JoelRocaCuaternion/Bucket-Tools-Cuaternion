@@ -1064,3 +1064,103 @@ function getObjectName(dbId) {
 }
 
 window.escalarObjeto = escalarObjeto;
+
+// Menu Mover
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar paneles
+    initializePanels();
+    
+    // Añadir event listeners a los botones
+    const leftToggleBtn = document.querySelector('#panel-izquierdo button[onclick*="toggleLeftPanel"]');
+    const rightToggleBtn = document.querySelector('#issuesPanel button[onclick*="toggleRightPanel"]');
+    
+    if (leftToggleBtn) {
+        leftToggleBtn.removeAttribute('onclick');
+        leftToggleBtn.addEventListener('click', toggleLeftPanel);
+    }
+    
+    if (rightToggleBtn) {
+        rightToggleBtn.removeAttribute('onclick');
+        rightToggleBtn.addEventListener('click', toggleRightPanel);
+    }
+    
+    // Otros event listeners para tus botones
+    const uploadBtn = document.getElementById('upload');
+    if (uploadBtn) {
+        uploadBtn.removeAttribute('onclick');
+        uploadBtn.addEventListener('click', uploadFile);
+    }
+    
+    const exportJsonBtn = document.querySelector('button[onclick*="exportarPropiedades"]');
+    if (exportJsonBtn) {
+        exportJsonBtn.removeAttribute('onclick');
+        exportJsonBtn.addEventListener('click', exportarPropiedades);
+    }
+    
+    const exportExcelBtn = document.querySelector('button[onclick*="exportarPropiedadesExcel"]');
+    if (exportExcelBtn) {
+        exportExcelBtn.removeAttribute('onclick');
+        exportExcelBtn.addEventListener('click', exportarPropiedadesExcel);
+    }
+    
+    const scaleBtn = document.querySelector('button[onclick*="escalarObjeto"]');
+    if (scaleBtn) {
+        scaleBtn.removeAttribute('onclick');
+        scaleBtn.addEventListener('click', escalarObjeto);
+    }
+});
+
+// Métodos para Menú Colapsable - SIN redimensionar
+function toggleLeftPanel() {
+    const leftPanel = document.getElementById('panel-izquierdo');
+    const floatingBtn = document.getElementById('floatingLeftBtn');
+    const isHidden = leftPanel.classList.contains('hidden-panel');
+    
+    if (isHidden) {
+        leftPanel.classList.remove('hidden-panel');
+        leftPanel.classList.add('panel-visible');
+        if (floatingBtn) floatingBtn.style.display = 'none';
+    } else {
+        leftPanel.classList.add('hidden-panel');
+        leftPanel.classList.remove('panel-visible');
+        if (floatingBtn) floatingBtn.style.display = 'block';
+    }
+    
+    // NO llamamos a resize - el viewer mantiene su tamaño original
+    console.log('Panel izquierdo toggled - viewer size maintained');
+}
+
+function toggleRightPanel() {
+    const rightPanel = document.getElementById('issuesPanel');
+    const floatingBtn = document.getElementById('floatingRightBtn');
+    const isHidden = rightPanel.classList.contains('hidden-panel');
+    
+    if (isHidden) {
+        rightPanel.classList.remove('hidden-panel');
+        rightPanel.classList.add('panel-visible');
+        if (floatingBtn) floatingBtn.style.display = 'none';
+    } else {
+        rightPanel.classList.add('hidden-panel');
+        rightPanel.classList.remove('panel-visible');
+        if (floatingBtn) floatingBtn.style.display = 'block';
+    }
+    
+    // NO llamamos a resize - el viewer mantiene su tamaño original
+    console.log('Panel derecho toggled - viewer size maintained');
+}
+
+function initializePanels() {
+    const leftPanel = document.getElementById('panel-izquierdo');
+    const rightPanel = document.getElementById('issuesPanel');
+    const leftBtn = document.getElementById('floatingLeftBtn');
+    const rightBtn = document.getElementById('floatingRightBtn');
+    
+    if (leftPanel) leftPanel.classList.add('panel-visible');
+    if (rightPanel) rightPanel.classList.add('panel-visible');
+    if (leftBtn) leftBtn.style.display = 'none';
+    if (rightBtn) rightBtn.style.display = 'none';
+}
+
+window.toggleLeftPanel = toggleLeftPanel;
+window.toggleRightPanel = toggleRightPanel;

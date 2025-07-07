@@ -290,7 +290,7 @@ class IssuesManager {
         
         const timeoutId = setTimeout(() => {
             this.removeHighlight(dbId);
-        }, 10000);
+        }, 0);
         
         if (!this.highlightTimeouts) {
             this.highlightTimeouts = new Map();
