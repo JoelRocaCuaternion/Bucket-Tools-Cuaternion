@@ -3,7 +3,8 @@ class IssuesManager {
         this.viewer = viewer;
         this.issues = [];
         this.activeMarkers = new Map();
-        this.activeIssue = null;
+        this.activeIssues = new Set(); // Cambio: Set para múltiples incidencias activas
+        this.markerUpdateInterval = null;
         
         this.init();
     }
@@ -100,61 +101,89 @@ class IssuesManager {
         this.viewer.addEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, () => {
             this.onGeometryLoaded();
         });
+
+        // Event listener para cambios de cámara
+        this.viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, () => {
+            this.updateMarkersPosition();
+        });
     }
 
     handleIssueClick(issueItem) {
         const issueIndex = parseInt(issueItem.dataset.issueIndex);
         const issue = this.issues[issueIndex];
 
-        // Alternar detalles de la incidencia
-        this.toggleIssueDetails(issueItem);
-
-        // Highlight del objeto en el viewer
-        this.highlightObject(issue.dbId);
-
-        // Crear/actualizar marcador 3D
-        this.showIssueMarker(issue);
-
-        // Enfocar cámara en el objeto
-        this.focusOnObject(issue.dbId);
+        // Alternar solo esta incidencia específica
+        this.toggleIssueDetails(issueItem, issue);
     }
 
-    toggleIssueDetails(issueItem) {
-        // Cerrar otras incidencias abiertas
-        document.querySelectorAll('.issue-item').forEach(item => {
-            if (item !== issueItem) {
-                item.classList.remove('active');
-                const details = item.querySelector('.issue-details');
-                details.classList.remove('show');
-            }
-        });
-
-        // Alternar la incidencia actual
+    toggleIssueDetails(issueItem, issue) {
         const details = issueItem.querySelector('.issue-details');
         const isActive = issueItem.classList.contains('active');
+        const issueIndex = parseInt(issueItem.dataset.issueIndex);
 
         if (isActive) {
+            // Cerrar esta incidencia específica
             issueItem.classList.remove('active');
             details.classList.remove('show');
-            this.activeIssue = null;
+            this.activeIssues.delete(issueIndex);
+            
+            // Remover solo el marcador de esta incidencia
+            this.removeMarker(issue.dbId);
+            
+            // Remover highlight de este objeto específico
+            this.removeHighlight(issue.dbId);
+            
+            // Si no hay más incidencias activas, parar las actualizaciones
+            if (this.activeIssues.size === 0) {
+                this.stopMarkerUpdates();
+            }
         } else {
+            // Abrir esta incidencia específica
             issueItem.classList.add('active');
             details.classList.add('show');
-            this.activeIssue = issueItem;
+            this.activeIssues.add(issueIndex);
+            
+            // Highlight del objeto en el viewer
+            this.highlightObject(issue.dbId);
+            
+            // Crear marcador 3D
+            this.showIssueMarker(issue);
+            
+            // Enfocar cámara en el objeto
+            this.focusOnObject(issue.dbId);
+            
+            // Iniciar actualizaciones de marcadores si es la primera incidencia
+            if (this.activeIssues.size === 1) {
+                this.startMarkerUpdates();
+            }
         }
     }
 
     highlightObject(dbId) {
-        // Limpiar highlights anteriores
-        this.viewer.clearThemingColors();
-        
-        // Highlight del objeto actual
+        // Ya no limpiar todos los highlights, solo agregar el nuevo
         this.viewer.setThemingColor(dbId, new THREE.Vector4(1, 0.5, 0, 1));
         
-        // Auto-limpiar después de 3 segundos
-        setTimeout(() => {
-            this.viewer.clearThemingColors();
+        // Guardar timeout para poder cancelarlo si es necesario
+        const timeoutId = setTimeout(() => {
+            this.removeHighlight(dbId);
         }, 10000);
+        
+        // Guardar referencia del timeout por si necesitamos cancelarlo
+        if (!this.highlightTimeouts) {
+            this.highlightTimeouts = new Map();
+        }
+        this.highlightTimeouts.set(dbId, timeoutId);
+    }
+
+    removeHighlight(dbId) {
+        // Remover highlight específico
+        this.viewer.setThemingColor(dbId, null);
+        
+        // Limpiar timeout si existe
+        if (this.highlightTimeouts && this.highlightTimeouts.has(dbId)) {
+            clearTimeout(this.highlightTimeouts.get(dbId));
+            this.highlightTimeouts.delete(dbId);
+        }
     }
 
     async showIssueMarker(issue) {
@@ -166,11 +195,8 @@ class IssuesManager {
             // Calcular posición central del objeto
             const center = bbox.center();
             
-            // Proyectar coordenadas 3D a 2D
-            const screenPoint = this.viewer.worldToClient(center);
-            
-            // Crear marcador
-            this.createMarker(screenPoint, issue);
+            // Crear marcador con la posición del objeto
+            this.createMarker(center, issue);
 
         } catch (error) {
             console.error('Error al mostrar marcador:', error);
@@ -194,27 +220,66 @@ class IssuesManager {
         });
     }
 
-    createMarker(screenPoint, issue) {
-        // Remover marcador anterior si existe
-        this.removeActiveMarkers();
+    createMarker(worldPosition, issue) {
+        // Remover marcador anterior si existe para este dbId específico
+        this.removeMarker(issue.dbId);
 
         // Crear nuevo marcador
         const marker = document.createElement('div');
         marker.className = `issue-marker ${issue.color}`;
+        marker.dataset.dbId = issue.dbId;
+
+        // Guardar la posición del mundo 3D en el marcador
+        marker.worldPosition = worldPosition;
+
+        // Calcular posición inicial en pantalla
+        const screenPoint = this.viewer.worldToClient(worldPosition);
         marker.style.left = `${screenPoint.x - 10}px`;
         marker.style.top = `${screenPoint.y - 10}px`;
-        marker.dataset.dbId = issue.dbId;
 
         // Agregar al viewer
         this.viewer.container.appendChild(marker);
         
         // Guardar referencia
         this.activeMarkers.set(issue.dbId, marker);
+    }
 
-        // Auto-remover después de 5 segundos
-        setTimeout(() => {
-            this.removeMarker(issue.dbId);
-        }, 5000);
+    // Método para actualizar las posiciones de los marcadores
+    updateMarkersPosition() {
+        this.activeMarkers.forEach((marker, dbId) => {
+            if (marker.worldPosition) {
+                const screenPoint = this.viewer.worldToClient(marker.worldPosition);
+                
+                // Verificar si el punto está visible en la pantalla
+                const rect = this.viewer.container.getBoundingClientRect();
+                if (screenPoint.x >= 0 && screenPoint.x <= rect.width && 
+                    screenPoint.y >= 0 && screenPoint.y <= rect.height) {
+                    marker.style.left = `${screenPoint.x - 10}px`;
+                    marker.style.top = `${screenPoint.y - 10}px`;
+                    marker.style.display = 'block';
+                } else {
+                    // Ocultar marcador si está fuera de vista
+                    marker.style.display = 'none';
+                }
+            }
+        });
+    }
+
+    // Iniciar actualizaciones periódicas de marcadores
+    startMarkerUpdates() {
+        if (this.markerUpdateInterval) return;
+        
+        this.markerUpdateInterval = setInterval(() => {
+            this.updateMarkersPosition();
+        }, 16); // ~60 FPS
+    }
+
+    // Parar actualizaciones de marcadores
+    stopMarkerUpdates() {
+        if (this.markerUpdateInterval) {
+            clearInterval(this.markerUpdateInterval);
+            this.markerUpdateInterval = null;
+        }
     }
 
     removeMarker(dbId) {
@@ -229,6 +294,7 @@ class IssuesManager {
         this.activeMarkers.forEach((marker, dbId) => {
             this.removeMarker(dbId);
         });
+        this.stopMarkerUpdates();
     }
 
     focusOnObject(dbId) {
@@ -259,6 +325,7 @@ class IssuesManager {
     removeIssue(dbId) {
         this.issues = this.issues.filter(issue => issue.dbId !== dbId);
         this.removeMarker(dbId);
+        this.removeHighlight(dbId);
         this.renderIssues();
     }
 
@@ -276,11 +343,48 @@ class IssuesManager {
         return this.issues.filter(issue => issue.color === color);
     }
 
+    // Método para limpiar todas las incidencias activas
+    clearAllActiveIssues() {
+        // Cerrar todas las incidencias activas
+        this.activeIssues.forEach(issueIndex => {
+            const issueItem = document.querySelector(`[data-issue-index="${issueIndex}"]`);
+            if (issueItem) {
+                issueItem.classList.remove('active');
+                const details = issueItem.querySelector('.issue-details');
+                details.classList.remove('show');
+            }
+        });
+        
+        this.activeIssues.clear();
+        this.removeActiveMarkers();
+        
+        // Limpiar todos los highlights
+        this.viewer.clearThemingColors();
+        if (this.highlightTimeouts) {
+            this.highlightTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+            this.highlightTimeouts.clear();
+        }
+    }
+
     // Método para limpiar todas las incidencias
     clearAllIssues() {
         this.issues = [];
-        this.removeActiveMarkers();
+        this.clearAllActiveIssues();
         this.renderIssues();
+    }
+
+    // Método para limpiar recursos al destruir la instancia
+    destroy() {
+        this.stopMarkerUpdates();
+        this.removeActiveMarkers();
+        this.clearAllActiveIssues();
+        this.issues = [];
+        
+        // Limpiar timeouts de highlights
+        if (this.highlightTimeouts) {
+            this.highlightTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+            this.highlightTimeouts.clear();
+        }
     }
 }
 
