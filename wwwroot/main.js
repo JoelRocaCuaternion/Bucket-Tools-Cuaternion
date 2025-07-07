@@ -8,6 +8,7 @@ let objetoEscalado = false;
 let objetoEscaladoDbId = null;
 let transformacionesOriginales = new Map();
 let objetosEscalados = new Map();
+let issuesManager;
 
 
 // Verificar estado de login al cargar la página
@@ -105,12 +106,23 @@ async function initializeApp() {
 
     initViewer(document.getElementById('preview')).then(viewer => {
         viewerInstance = viewer;
+
+        //Iniciar sistema incidencias
+        initializeIssuesSystem(viewer);
+
         const urn = window.location.hash?.substring(1);
         setupModelTree(viewer, urn);
     }).catch(err => {
         console.error('Error initializing viewer:', err);
         showMessage('❌ Error inicializando el visor. Verifica tus credenciales.', 'error');
     });
+}
+
+function initializeIssuesSystem(viewer) {
+    // Crear el gestor de issues
+    issuesManager = new IssuesManager(viewer);
+    
+    console.log('Sistema de Issues inicializado');
 }
 
 // Construye el árbol de modelos estilo Bucket Tools
@@ -748,7 +760,6 @@ async function exportarPropiedades() {
 }
 
 window.exportarPropiedades = exportarPropiedades;
-
 // Excel
 
 async function exportarPropiedadesExcel() {

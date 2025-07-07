@@ -31,7 +31,18 @@ export function initViewer(container) {
 export function loadModel(viewer, urn) {
     return new Promise(function (resolve, reject) {
         function onDocumentLoadSuccess(doc) {
-            resolve(viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry()));
+            const loadPromise = viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry());
+            // Limpiar marcadores anteriores si existe el issues manager
+            if (window.issuesManager) {
+                window.issuesManager.clearAllMarkers();
+            }
+            // Configurar el issues manager con el viewer cuando el modelo se cargue
+            loadPromise.then(() => {
+                if (window.issuesManager) {
+                    window.issuesManager.setViewer(viewer);
+                }
+            });  
+            resolve(loadPromise);
         }
         function onDocumentLoadFailure(code, message, errors) {
             reject({ code, message, errors });
