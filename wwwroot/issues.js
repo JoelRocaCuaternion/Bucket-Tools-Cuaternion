@@ -1,13 +1,19 @@
+// Funciona Zoom y Marcador usando TAG a DBID con fallback a coordenadas XYZ
+
 class IssuesManager {
     constructor(viewer) {
         this.viewer = viewer;
         this.issues = [];
-        this.filteredIssues = []; // Nueva propiedad para issues filtrados
+        this.filteredIssues = [];
         this.activeMarkers = new Map();
         this.activeIssues = new Set();
         this.markerUpdateInterval = null;
         
-        // Nuevas propiedades para filtros
+        // Mapa para convertir TAGs a DBIDs y datos del objeto
+        this.tagToDbIdMap = new Map();
+        this.objectDataMap = new Map(); // Para almacenar datos del objeto incluyendo posición XYZ
+        
+        // Propiedades para filtros
         this.filters = {
             search: '',
             severity: ['high', 'medium', 'low'],
@@ -18,19 +24,100 @@ class IssuesManager {
     }
 
     init() {
-        this.loadSampleIssues();
         this.setupEventListeners();
-        this.setupFilterListeners(); // Nuevo método para filtros
-        this.applyFilters(); // Aplicar filtros iniciales
+        this.setupFilterListeners();
+        
+        // Construir el mapa de TAG a DBID cuando el modelo esté cargado
+        if (this.viewer.model) {
+            this.buildTagToDbIdMap().then(() => {
+                this.loadSampleIssues();
+                this.applyFilters();
+            });
+        }
+    }
+
+    // Función para construir el mapa de TAG a DBID y datos del objeto
+    buildTagToDbIdMap() {
+        return new Promise((resolve) => {
+            if (!this.viewer.model) {
+                resolve();
+                return;
+            }
+
+            this.viewer.model.getObjectTree((tree) => {
+                const allDbIds = [];
+                tree.enumNodeChildren(tree.getRootId(), (dbId) => {
+                    allDbIds.push(dbId);
+                }, true); // recursivo
+
+                // Obtener propiedades relevantes incluyendo posición
+                const propertiesToGet = [
+                    'Tag', 'TAG', 'Position X', 'Position Y', 'Position Z',
+                    'name', 'Name', 'TYPE', 'Type'
+                ];
+
+                this.viewer.model.getBulkProperties(allDbIds, propertiesToGet, (results) => {
+                    results.forEach((item) => {
+                        // Buscar la propiedad Tag
+                        const tagProp = item.properties.find((p) => {
+                            return p.displayName === 'Tag' || p.displayName === 'TAG';
+                        });
+
+                        if (tagProp && tagProp.displayValue) {
+                            const tag = tagProp.displayValue;
+                            this.tagToDbIdMap.set(tag, item.dbId);
+                            
+                            // Obtener coordenadas XYZ si están disponibles
+                            const posXProp = item.properties.find(p => p.displayName === 'Position X');
+                            const posYProp = item.properties.find(p => p.displayName === 'Position Y');
+                            const posZProp = item.properties.find(p => p.displayName === 'Position Z');
+                            
+                            const objectData = {
+                                dbId: item.dbId,
+                                tag: tag,
+                                name: item.name || 'Sin nombre'
+                            };
+                            
+                            // Si tiene coordenadas XYZ, las añadimos
+                            if (posXProp && posYProp && posZProp) {
+                                // Convertir a números y manejar posibles comas decimales
+                                const posX = parseFloat(posXProp.displayValue.replace(',', '.'));
+                                const posY = parseFloat(posYProp.displayValue.replace(',', '.'));
+                                const posZ = parseFloat(posZProp.displayValue.replace(',', '.'));
+                                
+                                if (!isNaN(posX) && !isNaN(posY) && !isNaN(posZ)) {
+                                    objectData.position = new THREE.Vector3(posX, posY, posZ);
+                                }
+                            }
+                            
+                            this.objectDataMap.set(tag, objectData);
+                        }
+                    });
+                    
+                    console.log('Mapa TAG a DBID construido:', this.tagToDbIdMap);
+                    console.log('Datos de objetos:', this.objectDataMap);
+                    resolve();
+                });
+            });
+        });
+    }
+
+    // Función para obtener DBID a partir del TAG
+    getDbIdFromTag(tag) {
+        return this.tagToDbIdMap.get(tag);
+    }
+
+    // Función para obtener datos del objeto a partir del TAG
+    getObjectDataFromTag(tag) {
+        return this.objectDataMap.get(tag);
     }
 
     loadSampleIssues() {
-        // Actualizar datos de ejemplo con más campos para filtros
+        // Datos de ejemplo con TAGs reales
         this.issues = [
             {
-                dbId: 3,
-                tag: "#326441",
-                name: "ACPPPIPE",
+                tag: "R-C2/T1",
+                name: "ACPPEQUIPMENT",
                 color: "red",
                 severity: "high",
                 status: "open",
@@ -41,9 +128,8 @@ class IssuesManager {
                 description: "Fuga detectada en la tubería principal. Requiere atención inmediata."
             },
             {
-                dbId: 5,
-                tag: "#643201",
-                name: "VALVE_001",
+                tag: "R-E1",
+                name: "EQUIPMENT_001",
                 color: "orange",
                 severity: "medium",
                 status: "in-progress",
@@ -51,40 +137,37 @@ class IssuesManager {
                 location: "Sala de Máquinas",
                 assignee: "María García",
                 date: "2024-01-14",
-                description: "Válvula con presión irregular. Revisar calibración."
+                description: "Equipo con presión irregular. Revisar calibración."
             },
             {
-                dbId: 7,
-                tag: "#335464",
-                name: "SENSOR_TEMP",
+                tag: "R-C2",
+                name: "CONTROL_SYSTEM",
                 color: "green",
                 severity: "low",
                 status: "resolved",
                 type: "Instrumentación",
-                location: "Planta 2 - Sensor Ambiente",
+                location: "Planta 2 - Sistema de Control",
                 assignee: "Carlos López",
                 date: "2024-01-13",
-                description: "Sensor funcionando correctamente. Última lectura: 21.5°C"
+                description: "Sistema funcionando correctamente. Última verificación OK."
             },
             {
-                dbId: 9,
-                tag: "#666421",
-                name: "PUMP_MAIN",
+                tag: "R-E2",
+                name: "EQUIPMENT_002",
                 color: "red",
                 severity: "high",
                 status: "open",
                 type: "Mecánico",
-                location: "Cuarto de Bombas",
+                location: "Cuarto de Equipos",
                 assignee: "Ana Martín",
                 date: "2024-01-12",
-                description: "Bomba principal con sobrecalentamiento. Parar inmediatamente."
+                description: "Equipo con sobrecalentamiento. Parar inmediatamente."
             }
         ];
 
         this.applyFilters();
     }
 
-    // Nuevo método para aplicar filtros
     applyFilters() {
         this.filteredIssues = this.issues.filter(issue => {
             // Filtro de búsqueda
@@ -112,7 +195,6 @@ class IssuesManager {
         this.updateResultsCount();
     }
 
-    // método para configurar listeners de filtros
     setupFilterListeners() {
         // Evento de búsqueda
         const searchInput = document.getElementById('searchInput');
@@ -144,7 +226,6 @@ class IssuesManager {
         });
     }
 
-    // Método actualizado para renderizar issues filtrados
     renderIssues() {
         const issuesList = document.getElementById('issuesList');
         if (!issuesList) return;
@@ -165,12 +246,16 @@ class IssuesManager {
         });
     }
 
-    // Método actualizado para crear elementos de issue con más información
     createIssueElement(issue, index) {
         const issueDiv = document.createElement('div');
         issueDiv.className = 'issue-item';
         issueDiv.dataset.issueIndex = index;
-        issueDiv.dataset.dbId = issue.dbId;
+        issueDiv.dataset.tag = issue.tag;
+
+        // Obtener datos del objeto
+        const objectData = this.getObjectDataFromTag(issue.tag);
+        const dbId = objectData ? objectData.dbId : null;
+        const objectName = objectData ? objectData.name : issue.name;
 
         issueDiv.innerHTML = `
             <div class="issue-header">
@@ -179,12 +264,16 @@ class IssuesManager {
             </div>
             <div class="issue-details">
                 <div class="issue-detail-row">
+                    <div class="issue-detail-label">Tag:</div>
+                    <div class="issue-detail-value">${issue.tag}</div>
+                </div>
+                <div class="issue-detail-row">
                     <div class="issue-detail-label">DbID:</div>
-                    <div class="issue-detail-value">${issue.dbId}</div>
+                    <div class="issue-detail-value">${dbId || 'No encontrado'}</div>
                 </div>
                 <div class="issue-detail-row">
                     <div class="issue-detail-label">Objeto:</div>
-                    <div class="issue-detail-value">${issue.name}</div>
+                    <div class="issue-detail-value">${objectName}</div>
                 </div>
                 <div class="issue-description">
                     ${issue.description}
@@ -195,7 +284,6 @@ class IssuesManager {
         return issueDiv;
     }
 
-    // Nuevos métodos de utilidad
     getStatusText(status) {
         switch (status) {
             case 'open': return 'Abierto';
@@ -214,10 +302,9 @@ class IssuesManager {
         }
     }
 
-    // Método actualizado para manejar clicks (usar filteredIssues)
     handleIssueClick(issueItem) {
         const issueIndex = parseInt(issueItem.dataset.issueIndex);
-        const issue = this.filteredIssues[issueIndex]; // Usar filteredIssues
+        const issue = this.filteredIssues[issueIndex];
 
         this.toggleIssueDetails(issueItem, issue);
     }
@@ -242,10 +329,19 @@ class IssuesManager {
         });
     }
 
-    toggleIssueDetails(issueItem, issue) {
+    async toggleIssueDetails(issueItem, issue) {
         const details = issueItem.querySelector('.issue-details');
         const isActive = issueItem.classList.contains('active');
         const issueIndex = parseInt(issueItem.dataset.issueIndex);
+        
+        // Obtener datos del objeto
+        const objectData = this.getObjectDataFromTag(issue.tag);
+        const dbId = objectData ? objectData.dbId : null;
+        
+        if (!dbId) {
+            console.warn(`No se encontró DBID para el TAG: ${issue.tag}`);
+            return;
+        }
 
         if (isActive) {
             // Cerrar esta incidencia específica
@@ -254,10 +350,10 @@ class IssuesManager {
             this.activeIssues.delete(issueIndex);
             
             // Remover solo el marcador de esta incidencia
-            this.removeMarker(issue.dbId);
+            this.removeMarker(issue.tag);
             
             // Remover highlight de este objeto específico
-            this.removeHighlight(issue.dbId);
+            this.removeHighlight(dbId);
             
             // Si no hay más incidencias activas, parar las actualizaciones
             if (this.activeIssues.size === 0) {
@@ -270,13 +366,15 @@ class IssuesManager {
             this.activeIssues.add(issueIndex);
             
             // Highlight del objeto en el viewer
-            this.highlightObject(issue.dbId);
-            
-            // Crear marcador 3D
-            this.showIssueMarker(issue);
+            this.highlightObject(dbId);
             
             // Enfocar cámara en el objeto
-            this.focusOnObject(issue.dbId);
+            this.focusOnObject(dbId);
+            
+            // Crear marcador 3D después de un pequeño delay
+            setTimeout(async () => {
+                await this.showIssueMarker(issue, dbId, objectData);
+            }, 500);
             
             // Iniciar actualizaciones de marcadores si es la primera incidencia
             if (this.activeIssues.size === 1) {
@@ -290,7 +388,7 @@ class IssuesManager {
         
         const timeoutId = setTimeout(() => {
             this.removeHighlight(dbId);
-        }, 0);
+        }, 5000); // Aumentado a 5 segundos para mejor visibilidad
         
         if (!this.highlightTimeouts) {
             this.highlightTimeouts = new Map();
@@ -307,13 +405,30 @@ class IssuesManager {
         }
     }
 
-    async showIssueMarker(issue) {
+    async showIssueMarker(issue, dbId, objectData) {
         try {
-            const bbox = await this.getObjectBoundingBox(issue.dbId);
-            if (!bbox) return;
-
-            const center = bbox.center();
-            this.createMarker(center, issue);
+            let markerPosition = null;
+            
+            // Primero intentar obtener el bounding box de los fragmentos
+            const bbox = await this.getObjectBoundingBox(dbId);
+            if (bbox) {
+                markerPosition = bbox.center();
+                console.log(`Marcador para TAG: ${issue.tag} usando bounding box, Posición:`, markerPosition);
+            } 
+            // Si no hay bounding box, usar coordenadas XYZ del objeto
+            else if (objectData && objectData.position) {
+                markerPosition = objectData.position.clone();
+                console.log(`Marcador para TAG: ${issue.tag} usando coordenadas XYZ, Posición:`, markerPosition);
+            }
+            
+            if (markerPosition) {
+                // Pequeño delay para asegurar que el viewer está listo
+                setTimeout(() => {
+                    this.createMarker(markerPosition, issue);
+                }, 100);
+            } else {
+                console.warn(`No se pudo determinar la posición para el marcador del TAG: ${issue.tag}`);
+            }
 
         } catch (error) {
             console.error('Error al mostrar marcador:', error);
@@ -324,7 +439,10 @@ class IssuesManager {
         return new Promise((resolve) => {
             this.viewer.getObjectTree((tree) => {
                 const bbox = new THREE.Box3();
+                let hasFragments = false;
+                
                 tree.enumNodeFragments(dbId, (fragId) => {
+                    hasFragments = true;
                     const fragProxy = this.viewer.impl.getFragmentProxy(this.viewer.model, fragId);
                     fragProxy.getAnimTransform();
                     
@@ -332,30 +450,90 @@ class IssuesManager {
                     fragProxy.getWorldBounds(fragBBox);
                     bbox.union(fragBBox);
                 });
-                resolve(bbox.isEmpty() ? null : bbox);
+                
+                if (!hasFragments) {
+                    console.log(`No se encontraron fragmentos para DBID: ${dbId}, usando coordenadas XYZ`);
+                    resolve(null);
+                    return;
+                }
+                
+                if (bbox.isEmpty()) {
+                    console.warn(`Bounding box vacío para DBID: ${dbId}`);
+                    resolve(null);
+                    return;
+                }
+                
+                console.log(`Bounding box obtenido para DBID ${dbId}:`, bbox);
+                resolve(bbox);
             });
         });
     }
 
     createMarker(worldPosition, issue) {
-        this.removeMarker(issue.dbId);
+        // Remover marcador previo si existe
+        this.removeMarker(issue.tag);
 
         const marker = document.createElement('div');
         marker.className = `issue-marker ${issue.color}`;
-        marker.dataset.dbId = issue.dbId;
+        marker.dataset.tag = issue.tag;
+        marker.innerHTML = '●'; // Añadir un punto
 
+        // Estilos del marcador
+        marker.style.cssText = `
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1000;
+            pointer-events: auto;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            border: 2px solid white;
+        `;
+
+        // Aplicar color según el tipo de incidencia
+        switch (issue.color) {
+            case 'red':
+                marker.style.backgroundColor = '#ff4444';
+                break;
+            case 'orange':
+                marker.style.backgroundColor = '#ff8800';
+                break;
+            case 'green':
+                marker.style.backgroundColor = '#44ff44';
+                break;
+            default:
+                marker.style.backgroundColor = '#666666';
+        }
+
+        // Guardar la posición mundial
         marker.worldPosition = worldPosition;
 
+        // Convertir posición mundial a coordenadas de pantalla
         const screenPoint = this.viewer.worldToClient(worldPosition);
+        
+        console.log(`Marcador para ${issue.tag} - Posición mundial:`, worldPosition);
+        console.log(`Marcador para ${issue.tag} - Posición pantalla:`, screenPoint);
+        
+        // Posicionar el marcador
         marker.style.left = `${screenPoint.x - 10}px`;
         marker.style.top = `${screenPoint.y - 10}px`;
 
+        // Añadir al contenedor del viewer
         this.viewer.container.appendChild(marker);
-        this.activeMarkers.set(issue.dbId, marker);
+        this.activeMarkers.set(issue.tag, marker);
+        
+        console.log(`Marcador creado para ${issue.tag} en posición:`, screenPoint);
     }
 
     updateMarkersPosition() {
-        this.activeMarkers.forEach((marker, dbId) => {
+        this.activeMarkers.forEach((marker, tag) => {
             if (marker.worldPosition) {
                 const screenPoint = this.viewer.worldToClient(marker.worldPosition);
                 
@@ -387,17 +565,17 @@ class IssuesManager {
         }
     }
 
-    removeMarker(dbId) {
-        const marker = this.activeMarkers.get(dbId);
+    removeMarker(tag) {
+        const marker = this.activeMarkers.get(tag);
         if (marker && marker.parentNode) {
             marker.parentNode.removeChild(marker);
-            this.activeMarkers.delete(dbId);
+            this.activeMarkers.delete(tag);
         }
     }
 
     removeActiveMarkers() {
-        this.activeMarkers.forEach((marker, dbId) => {
-            this.removeMarker(dbId);
+        this.activeMarkers.forEach((marker, tag) => {
+            this.removeMarker(tag);
         });
         this.stopMarkerUpdates();
     }
@@ -412,31 +590,39 @@ class IssuesManager {
     }
 
     onGeometryLoaded() {
-        console.log('Geometría cargada - Issues Manager listo');
+        console.log('Geometría cargada - Construyendo mapa TAG a DBID');
+        this.buildTagToDbIdMap().then(() => {
+            console.log('Mapa TAG a DBID construido - Issues Manager listo');
+            this.loadSampleIssues();
+            this.applyFilters();
+        });
     }
 
-    // Métodos actualizados para trabajar con filtros
+    // Métodos actualizados para trabajar con TAGs
     addIssue(issue) {
         this.issues.push(issue);
-        this.applyFilters(); // Aplicar filtros después de agregar
+        this.applyFilters();
     }
 
-    removeIssue(dbId) {
-        this.issues = this.issues.filter(issue => issue.dbId !== dbId);
-        this.removeMarker(dbId);
-        this.removeHighlight(dbId);
-        this.applyFilters(); // Aplicar filtros después de remover
+    removeIssue(tag) {
+        const dbId = this.getDbIdFromTag(tag);
+        this.issues = this.issues.filter(issue => issue.tag !== tag);
+        this.removeMarker(tag);
+        if (dbId) {
+            this.removeHighlight(dbId);
+        }
+        this.applyFilters();
     }
 
-    updateIssue(dbId, updatedIssue) {
-        const index = this.issues.findIndex(issue => issue.dbId === dbId);
+    updateIssue(tag, updatedIssue) {
+        const index = this.issues.findIndex(issue => issue.tag === tag);
         if (index !== -1) {
             this.issues[index] = { ...this.issues[index], ...updatedIssue };
-            this.applyFilters(); // Aplicar filtros después de actualizar
+            this.applyFilters();
         }
     }
 
-    // Nuevos métodos para gestión de filtros
+    // Métodos para gestión de filtros
     setSearchFilter(searchTerm) {
         this.filters.search = searchTerm.toLowerCase();
         this.applyFilters();
@@ -510,6 +696,8 @@ class IssuesManager {
         this.clearAllActiveIssues();
         this.issues = [];
         this.filteredIssues = [];
+        this.tagToDbIdMap.clear();
+        this.objectDataMap.clear();
         
         if (this.highlightTimeouts) {
             this.highlightTimeouts.forEach(timeoutId => clearTimeout(timeoutId));

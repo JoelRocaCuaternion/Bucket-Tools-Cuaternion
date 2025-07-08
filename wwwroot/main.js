@@ -109,7 +109,7 @@ async function initializeApp() {
 
         //Iniciar sistema incidencias
         initializeIssuesSystem(viewer);
-
+        
         const urn = window.location.hash?.substring(1);
         setupModelTree(viewer, urn);
     }).catch(err => {
