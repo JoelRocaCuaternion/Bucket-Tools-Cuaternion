@@ -128,7 +128,7 @@ class IssuesManager {
                 description: "Fuga detectada en la tubería principal. Requiere atención inmediata."
             },
             {
-                tag: "R-E1",
+                tag: "SC-T-2",
                 name: "EQUIPMENT_001",
                 color: "orange",
                 severity: "medium",
