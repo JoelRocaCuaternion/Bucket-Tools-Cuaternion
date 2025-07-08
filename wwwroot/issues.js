@@ -298,7 +298,7 @@ class IssuesManager {
         if (countElement) {
             const total = this.issues.length;
             const filtered = this.filteredIssues.length;
-            countElement.textContent = `Mostrando ${filtered} de ${total} incidencias`;
+            countElement.textContent = `Mostrando ${filtered} de ${filtered} incidencias`;
         }
     }
 
@@ -417,15 +417,14 @@ class IssuesManager {
             } 
             // Si no hay bounding box, usar coordenadas XYZ del objeto
             else if (objectData && objectData.position) {
+                // Usar las coordenadas XYZ directamente sin conversión
                 markerPosition = objectData.position.clone();
-                console.log(`Marcador para TAG: ${issue.tag} usando coordenadas XYZ, Posición:`, markerPosition);
+                console.log(`Marcador para TAG: ${issue.tag} usando coordenadas XYZ originales, Posición:`, markerPosition);
             }
             
             if (markerPosition) {
-                // Pequeño delay para asegurar que el viewer está listo
-                setTimeout(() => {
-                    this.createMarker(markerPosition, issue);
-                }, 100);
+                // Crear el marcador inmediatamente
+                this.createMarker(markerPosition, issue);
             } else {
                 console.warn(`No se pudo determinar la posición para el marcador del TAG: ${issue.tag}`);
             }
@@ -444,21 +443,20 @@ class IssuesManager {
                 tree.enumNodeFragments(dbId, (fragId) => {
                     hasFragments = true;
                     const fragProxy = this.viewer.impl.getFragmentProxy(this.viewer.model, fragId);
-                    fragProxy.getAnimTransform();
-                    
-                    const fragBBox = new THREE.Box3();
-                    fragProxy.getWorldBounds(fragBBox);
-                    bbox.union(fragBBox);
+                    if (fragProxy) {
+                        fragProxy.getAnimTransform();
+                        
+                        const fragBBox = new THREE.Box3();
+                        fragProxy.getWorldBounds(fragBBox);
+                        
+                        if (!fragBBox.isEmpty()) {
+                            bbox.union(fragBBox);
+                        }
+                    }
                 });
                 
-                if (!hasFragments) {
-                    console.log(`No se encontraron fragmentos para DBID: ${dbId}, usando coordenadas XYZ`);
-                    resolve(null);
-                    return;
-                }
-                
-                if (bbox.isEmpty()) {
-                    console.warn(`Bounding box vacío para DBID: ${dbId}`);
+                if (!hasFragments || bbox.isEmpty()) {
+                    console.log(`No se encontraron fragmentos válidos para DBID: ${dbId}, usando coordenadas XYZ`);
                     resolve(null);
                     return;
                 }
@@ -476,41 +474,14 @@ class IssuesManager {
         const marker = document.createElement('div');
         marker.className = `issue-marker ${issue.color}`;
         marker.dataset.tag = issue.tag;
-        marker.innerHTML = '●'; // Añadir un punto
 
-        // Estilos del marcador
+        // Usar los estilos CSS existentes y añadir solo lo necesario
         marker.style.cssText = `
             position: absolute;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
             z-index: 1000;
             pointer-events: auto;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            border: 2px solid white;
+            transform: translate(-50%, -50%);
         `;
-
-        // Aplicar color según el tipo de incidencia
-        switch (issue.color) {
-            case 'red':
-                marker.style.backgroundColor = '#ff4444';
-                break;
-            case 'orange':
-                marker.style.backgroundColor = '#ff8800';
-                break;
-            case 'green':
-                marker.style.backgroundColor = '#44ff44';
-                break;
-            default:
-                marker.style.backgroundColor = '#666666';
-        }
 
         // Guardar la posición mundial
         marker.worldPosition = worldPosition;
@@ -521,9 +492,9 @@ class IssuesManager {
         console.log(`Marcador para ${issue.tag} - Posición mundial:`, worldPosition);
         console.log(`Marcador para ${issue.tag} - Posición pantalla:`, screenPoint);
         
-        // Posicionar el marcador
-        marker.style.left = `${screenPoint.x - 10}px`;
-        marker.style.top = `${screenPoint.y - 10}px`;
+        // Posicionar el marcador usando transform para centrado perfecto
+        marker.style.left = `${screenPoint.x}px`;
+        marker.style.top = `${screenPoint.y}px`;
 
         // Añadir al contenedor del viewer
         this.viewer.container.appendChild(marker);
@@ -540,8 +511,8 @@ class IssuesManager {
                 const rect = this.viewer.container.getBoundingClientRect();
                 if (screenPoint.x >= 0 && screenPoint.x <= rect.width && 
                     screenPoint.y >= 0 && screenPoint.y <= rect.height) {
-                    marker.style.left = `${screenPoint.x - 10}px`;
-                    marker.style.top = `${screenPoint.y - 10}px`;
+                    marker.style.left = `${screenPoint.x}px`;
+                    marker.style.top = `${screenPoint.y}px`;
                     marker.style.display = 'block';
                 } else {
                     marker.style.display = 'none';
@@ -586,7 +557,7 @@ class IssuesManager {
         
         setTimeout(() => {
             this.viewer.isolate();
-        }, 3000);
+        }, 100);
     }
 
     onGeometryLoaded() {
